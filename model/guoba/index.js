@@ -3,6 +3,7 @@ import { baseConfigSchema } from './schemas/baseConfig.js'
 import { messageConfigSchema } from './schemas/messageConfig.js'
 import { managementConfigSchema } from './schemas/managementConfig.js'
 import { notificationConfigSchema } from './schemas/notificationConfig.js'
+import { bannedWordsConfigSchema } from './schemas/bannedWordsConfig.js'
 import { getConfigData } from './getConfigData.js'
 import { setConfigData } from './setConfigData.js'
 
@@ -14,6 +15,7 @@ export function supportGuoba() {
         ...baseConfigSchema,
         ...messageConfigSchema,
         ...managementConfigSchema,
+        ...bannedWordsConfigSchema,
         ...notificationConfigSchema
       ],
       getConfigData,
