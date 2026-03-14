@@ -8,6 +8,41 @@ export const managementConfigSchema = [
   },
   {
     component: 'Divider',
+    label: '群聊黑名单',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'blacklistGroups',
+    label: '黑名单群聊',
+    bottomHelpMessage: '机器人进入这些群聊后将自动退出',
+    component: 'GSelectGroup',
+    componentProps: {
+      placeholder: '点击选择要加入黑名单的群聊',
+      allowInput: true
+    }
+  },
+  {
+    component: 'Divider',
+    label: '用户黑名单',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'blacklistUsers',
+    label: '黑名单用户',
+    bottomHelpMessage: '这些用户进入白名单群聊后将被自动踢出',
+    component: 'GSelectFriend',
+    componentProps: {
+      placeholder: '点击选择要加入黑名单的用户'
+    }
+  },
+  {
+    component: 'Divider',
     label: '管理功能设置',
     componentProps: {
       orientation: 'left',

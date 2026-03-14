@@ -1,10 +1,8 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { checkBannedWords, handleBannedWordTrigger, handleWhitelistBannedWord } from '../model/bannedWordCheck.js'
-import { initEventListener } from '../model/index.js'
 
-// 初始化事件监听
-initEventListener()
+// 注意：initEventListener 已在 index.js 中调用，无需重复调用
 
 /**
  * 自动退群主处理器
