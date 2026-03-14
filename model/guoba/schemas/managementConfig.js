@@ -8,6 +8,24 @@ export const managementConfigSchema = [
   },
   {
     component: 'Divider',
+    label: '群聊白名单',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'whitelistGroups',
+    label: '白名单群聊',
+    bottomHelpMessage: '白名单群聊不会自动退群，且支持违禁词管理功能',
+    component: 'GSelectGroup',
+    componentProps: {
+      placeholder: '点击选择要加入白名单的群聊',
+      allowInput: true
+    }
+  },
+  {
+    component: 'Divider',
     label: '群聊黑名单',
     componentProps: {
       orientation: 'left',

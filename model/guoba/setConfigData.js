@@ -10,7 +10,7 @@ export async function setConfigData(data, { Result }) {
     const currentConfig = Config.loadConfig()
 
     // 提取需要单独处理的数据
-    const { bannedWordsList, blacklistGroups, blacklistUsers, ...restData } = data
+    const { bannedWordsList, whitelistGroups, blacklistGroups, blacklistUsers, ...restData } = data
 
     // 处理违禁词列表（GTags 组件返回数组）
     if (bannedWordsList !== undefined) {
@@ -25,6 +25,21 @@ export async function setConfigData(data, { Result }) {
         logger.info(`[自动退群] 违禁词列表已更新，共 ${uniqueWords.length} 个`)
       } else {
         return Result.error('保存违禁词列表失败')
+      }
+    }
+
+    // 处理白名单群聊（GSelectGroup 组件返回数组）
+    if (whitelistGroups !== undefined) {
+      const groupList = [...new Set(
+        Array.isArray(whitelistGroups)
+          ? whitelistGroups.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
+          : []
+      )]
+
+      if (Config.saveWhitelist(groupList)) {
+        logger.info(`[自动退群] 白名单群聊已更新，共 ${groupList.length} 个`)
+      } else {
+        return Result.error('保存白名单群聊失败')
       }
     }
 
