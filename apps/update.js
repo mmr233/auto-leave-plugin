@@ -55,8 +55,6 @@ export class UpdateHandler extends plugin {
       const isForce = e.msg.includes('强制')
       const branch = await getCurrentBranch(pluginPath)
 
-      await e.reply(`开始${isForce ? '强制' : ''}更新自动退群插件...`)
-
       let command = ''
 
       if (isForce) {
@@ -70,32 +68,38 @@ export class UpdateHandler extends plugin {
       const stdout = await exec(command, pluginPath)
 
       // 解析更新结果
-      if (stdout.includes('Already up to date') || stdout.includes('最新')) {
+      if (stdout.includes('Already up to date') || stdout.includes('最新') || stdout.includes('up to date')) {
         await e.reply('自动退群插件已是最新版本')
-      } else if (stdout.includes('Updating') || stdout.includes('更新') || stdout.includes('files changed')) {
-        const numRet = /(\d+)\s*files?\s*changed/i.exec(stdout)
-        if (numRet?.[1]) {
-          await e.reply(`自动退群插件更新成功，共更新 ${numRet[1]} 个文件`)
-        } else {
-          await e.reply('自动退群插件更新成功')
-        }
-
-        // 显示最近的提交记录
-        const commits = await getRecentCommits(pluginPath, 3)
-        if (commits) {
-          await e.reply(`最近更新：\n${commits}`)
-        }
-
-        // 更新成功后自动安装依赖
-        await this.installDependencies(e)
-      } else {
-        await e.reply(`自动退群插件更新完成\n${stdout}`)
-
-        // 更新成功后自动安装依赖
-        await this.installDependencies(e)
+        return true
       }
 
-      logger.info(`[自动退群] 插件更新完成`)
+      // 构建更新消息
+      let messages = ['自动退群插件更新成功']
+
+      // 解析更新的文件数
+      const numRet = /(\d+)\s*files?\s*changed/i.exec(stdout)
+      if (numRet?.[1]) {
+        messages[0] += `，共更新 ${numRet[1]} 个文件`
+      }
+
+      // 获取最近提交记录
+      const commits = await getRecentCommits(pluginPath, 3)
+      if (commits) {
+        messages.push(`最近更新：\n${commits}`)
+      }
+
+      // 安装依赖
+      const depResult = await this.installDependencies()
+      if (depResult) {
+        messages.push(depResult)
+      }
+
+      // 合并发送一条消息
+      await e.reply(messages.join('\n\n'))
+
+      // 更新成功后自动重启
+      logger.info(`[自动退群] 插件更新完成，准备重启...`)
+      await this.autoRestart(e)
 
     } catch (err) {
       logger.error(`[自动退群] 更新失败:`, err)
@@ -114,23 +118,19 @@ export class UpdateHandler extends plugin {
   /**
    * 安装/更新依赖
    */
-  async installDependencies(e) {
+  async installDependencies() {
     try {
       // 检查 package.json 是否存在
       const packageJsonPath = path.join(pluginPath, 'package.json')
       if (!fs.existsSync(packageJsonPath)) {
-        logger.debug('[自动退群] 未找到 package.json，跳过依赖安装')
-        return
+        return null
       }
 
       // 检查是否有依赖
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
       if (!packageJson.dependencies || Object.keys(packageJson.dependencies).length === 0) {
-        logger.debug('[自动退群] 无依赖需要安装')
-        return
+        return null
       }
-
-      await e.reply('正在安装依赖...')
 
       // 优先使用 pnpm，其次 npm
       let installCmd = 'pnpm install'
@@ -155,40 +155,54 @@ export class UpdateHandler extends plugin {
 
       // 检查安装结果
       if (result.includes('ERR_') || result.includes('error')) {
-        await e.reply(
-          `依赖安装失败！\n` +
-          `请手动执行: ${installCmd}\n` +
-          `或检查网络连接后重试`
-        )
         logger.error(`[自动退群] 依赖安装失败: ${result}`)
-      } else {
-        // 解析安装的依赖数量
-        const addedMatch = result.match(/added (\d+) packages/i)
-        const changedMatch = result.match(/changed (\d+) packages/i)
-        const removedMatch = result.match(/removed (\d+) packages/i)
-
-        let summary = []
-        if (addedMatch) summary.push(`新增 ${addedMatch[1]} 个`)
-        if (changedMatch) summary.push(`更新 ${changedMatch[1]} 个`)
-        if (removedMatch) summary.push(`移除 ${removedMatch[1]} 个`)
-
-        if (summary.length > 0) {
-          await e.reply(`依赖安装完成：${summary.join('、')}\n请重启生效`)
-        } else {
-          await e.reply('依赖已是最新，请重启生效')
-        }
-
-        logger.info(`[自动退群] 依赖安装完成`)
+        return `⚠️ 依赖安装失败，请手动执行: ${installCmd}`
       }
+
+      // 解析安装的依赖数量
+      const addedMatch = result.match(/added (\d+) packages/i)
+      const changedMatch = result.match(/changed (\d+) packages/i)
+      const removedMatch = result.match(/removed (\d+) packages/i)
+
+      let summary = []
+      if (addedMatch) summary.push(`新增 ${addedMatch[1]} 个`)
+      if (changedMatch) summary.push(`更新 ${changedMatch[1]} 个`)
+      if (removedMatch) summary.push(`移除 ${removedMatch[1]} 个`)
+
+      if (summary.length > 0) {
+        logger.info(`[自动退群] 依赖安装完成: ${summary.join('、')}`)
+        return `📦 依赖: ${summary.join('、')}`
+      }
+
+      return null
 
     } catch (err) {
       logger.error(`[自动退群] 依赖安装失败:`, err)
-      await e.reply(
-        `依赖安装出错！\n` +
-        `错误: ${err.message}\n` +
-        `请手动执行: pnpm install\n` +
-        `或在插件目录执行: npm install`
-      )
+      return `⚠️ 依赖安装出错: ${err.message}`
+    }
+  }
+
+  /**
+   * 自动重启
+   */
+  async autoRestart(e) {
+    try {
+      // 延迟2秒后重启，给用户看到消息
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      // 尝试调用 Yunzai 的重启命令
+      if (typeof restart === 'function') {
+        await e.reply('🔄 更新完成，正在重启...')
+        restart()
+      } else if (Bot && Bot.restart) {
+        await e.reply('🔄 更新完成，正在重启...')
+        Bot.restart()
+      } else {
+        await e.reply('✅ 更新完成，请手动重启生效')
+      }
+    } catch (err) {
+      logger.error(`[自动退群] 自动重启失败:`, err)
+      await e.reply('✅ 更新完成，请手动重启生效')
     }
   }
 
