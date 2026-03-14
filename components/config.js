@@ -9,6 +9,9 @@ const __dirname = path.dirname(__filename)
 // 插件根目录
 const pluginRoot = path.join(__dirname, '..')
 
+// 数据目录（Yunzai/data/自动退群）
+const dataRoot = path.join(process.cwd(), 'data/自动退群')
+
 // 默认配置
 const DEFAULT_CONFIG = {
   // 群成员数量检查相关设置
@@ -55,13 +58,14 @@ const DEFAULT_CONFIG = {
   // 通知相关设置
   notification: {
     enabled: true,
-    message: '🚨 自动退群通知 🚨\n📍 群号：{groupId}\n📝 群名：{groupName}\n⚠️ 退群原因：{reason}\n🕐 时间：{time}'
+    message: '自动退群通知\n群号：{groupId}\n群名：{groupName}\n退群原因：{reason}\n时间：{time}'
   }
 }
 
 class ConfigManager {
   constructor() {
-    this.configPath = path.join(pluginRoot, 'config/config')
+    // 配置文件存储在 Yunzai/data/自动退群 目录，防止插件删除时数据丢失
+    this.configPath = path.join(dataRoot, 'config')
     this.defaultConfigPath = path.join(pluginRoot, 'config/default')
     this.initConfigDir()
   }
@@ -78,17 +82,44 @@ class ConfigManager {
       fs.mkdirSync(this.defaultConfigPath, { recursive: true })
     }
 
-    // 初始化默认配置文件
+    // 初始化默认配置文件（在插件目录）
     const defaultConfigFile = path.join(this.defaultConfigPath, 'config.json')
     if (!fs.existsSync(defaultConfigFile)) {
       fs.writeFileSync(defaultConfigFile, JSON.stringify(DEFAULT_CONFIG, null, 2))
     }
+
+    // 迁移旧配置文件（如果存在）
+    this.migrateOldConfig()
 
     // 初始化其他配置文件
     this.initListFile('whitelist.json', [])
     this.initListFile('blacklist.json', [])
     this.initListFile('bannedWords.json', [])
     this.initListFile('muteCount.json', {})
+  }
+
+  /**
+   * 迁移旧配置文件
+   */
+  migrateOldConfig() {
+    const oldConfigPath = path.join(pluginRoot, 'config/config')
+    const oldFiles = ['config.json', 'whitelist.json', 'blacklist.json', 'bannedWords.json', 'muteCount.json']
+
+    for (const file of oldFiles) {
+      const oldFile = path.join(oldConfigPath, file)
+      const newFile = path.join(this.configPath, file)
+
+      // 如果旧文件存在且新文件不存在，则迁移
+      if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+        try {
+          const content = fs.readFileSync(oldFile, 'utf8')
+          fs.writeFileSync(newFile, content)
+          logger.info(`[自动退群] 已迁移配置文件: ${file}`)
+        } catch (err) {
+          logger.error(`[自动退群] 迁移配置文件失败: ${file}`, err)
+        }
+      }
+    }
   }
 
   /**
