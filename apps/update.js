@@ -72,7 +72,7 @@ export class UpdateHandler extends plugin {
       // 解析更新结果
       if (stdout.includes('Already up to date') || stdout.includes('最新')) {
         await e.reply('自动退群插件已是最新版本')
-      } else if (stdout.includes('Updating') || stdout.includes('更新')) {
+      } else if (stdout.includes('Updating') || stdout.includes('更新') || stdout.includes('files changed')) {
         const numRet = /(\d+)\s*files?\s*changed/i.exec(stdout)
         if (numRet?.[1]) {
           await e.reply(`自动退群插件更新成功，共更新 ${numRet[1]} 个文件`)
@@ -85,8 +85,14 @@ export class UpdateHandler extends plugin {
         if (commits) {
           await e.reply(`最近更新：\n${commits}`)
         }
+
+        // 更新成功后自动安装依赖
+        await this.installDependencies(e)
       } else {
         await e.reply(`自动退群插件更新完成\n${stdout}`)
+
+        // 更新成功后自动安装依赖
+        await this.installDependencies(e)
       }
 
       logger.info(`[自动退群] 插件更新完成`)
@@ -96,13 +102,94 @@ export class UpdateHandler extends plugin {
       await e.reply(
         `更新失败！\n` +
         `错误: ${err.message}\n` +
-        '请稍后重试或使用 #自动退群强制更新'
+        '请稍后重试或使用 t强制更新'
       )
     } finally {
       updateLock = false
     }
 
     return true
+  }
+
+  /**
+   * 安装/更新依赖
+   */
+  async installDependencies(e) {
+    try {
+      // 检查 package.json 是否存在
+      const packageJsonPath = path.join(pluginPath, 'package.json')
+      if (!fs.existsSync(packageJsonPath)) {
+        logger.debug('[自动退群] 未找到 package.json，跳过依赖安装')
+        return
+      }
+
+      // 检查是否有依赖
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+      if (!packageJson.dependencies || Object.keys(packageJson.dependencies).length === 0) {
+        logger.debug('[自动退群] 无依赖需要安装')
+        return
+      }
+
+      await e.reply('正在安装依赖...')
+
+      // 优先使用 pnpm，其次 npm
+      let installCmd = 'pnpm install'
+      let managerName = 'pnpm'
+
+      // 检测包管理器
+      const pnpmLock = path.join(pluginPath, 'pnpm-lock.yaml')
+      const npmLock = path.join(pluginPath, 'package-lock.json')
+      const yarnLock = path.join(pluginPath, 'yarn.lock')
+
+      if (fs.existsSync(npmLock)) {
+        installCmd = 'npm install'
+        managerName = 'npm'
+      } else if (fs.existsSync(yarnLock)) {
+        installCmd = 'yarn install'
+        managerName = 'yarn'
+      }
+
+      logger.info(`[自动退群] 使用 ${managerName} 安装依赖`)
+
+      const result = await exec(installCmd, pluginPath)
+
+      // 检查安装结果
+      if (result.includes('ERR_') || result.includes('error')) {
+        await e.reply(
+          `依赖安装失败！\n` +
+          `请手动执行: ${installCmd}\n` +
+          `或检查网络连接后重试`
+        )
+        logger.error(`[自动退群] 依赖安装失败: ${result}`)
+      } else {
+        // 解析安装的依赖数量
+        const addedMatch = result.match(/added (\d+) packages/i)
+        const changedMatch = result.match(/changed (\d+) packages/i)
+        const removedMatch = result.match(/removed (\d+) packages/i)
+
+        let summary = []
+        if (addedMatch) summary.push(`新增 ${addedMatch[1]} 个`)
+        if (changedMatch) summary.push(`更新 ${changedMatch[1]} 个`)
+        if (removedMatch) summary.push(`移除 ${removedMatch[1]} 个`)
+
+        if (summary.length > 0) {
+          await e.reply(`依赖安装完成：${summary.join('、')}\n请重启生效`)
+        } else {
+          await e.reply('依赖已是最新，请重启生效')
+        }
+
+        logger.info(`[自动退群] 依赖安装完成`)
+      }
+
+    } catch (err) {
+      logger.error(`[自动退群] 依赖安装失败:`, err)
+      await e.reply(
+        `依赖安装出错！\n` +
+        `错误: ${err.message}\n` +
+        `请手动执行: pnpm install\n` +
+        `或在插件目录执行: npm install`
+      )
+    }
   }
 
   /**

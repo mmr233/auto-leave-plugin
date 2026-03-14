@@ -2,7 +2,7 @@
 
 ## 介绍
 
-群成员少于50人时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理。
+群成员少于配置值时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理。
 
 ## 安装方式
 
@@ -12,6 +12,9 @@ cd Yunzai/plugins
 
 # 克隆插件
 git clone https://github.com/mmr233/auto-leave-plugin.git
+
+# 安装依赖（可选，更新时会自动安装）
+cd auto-leave-plugin && pnpm install
 ```
 
 ## 依赖要求
@@ -86,6 +89,12 @@ git clone https://github.com/mmr233/auto-leave-plugin.git
 - 支持自动踢出黑名单用户
 
 ## 更新日志
+
+### v1.2.0
+- 更新后自动安装依赖
+- 自动检测包管理器（pnpm/npm/yarn）
+- 优化更新命令提示信息
+- 修正描述：群成员少于配置值时自动退群
 
 ### v1.1.0
 - 新增插件 Git 更新功能

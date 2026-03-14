@@ -2,7 +2,7 @@ export const pluginInfo = {
   // 基本信息
   name: 'auto-leave-plugin',
   title: '自动退群',
-  description: '群成员少于50人时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理',
+  description: '群成员少于配置值时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理',
 
   // 作者信息
   author: ['@mmr233'],
