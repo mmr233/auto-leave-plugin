@@ -1,12 +1,12 @@
-import { Config } from '../../components/config.js'
-import { getGroupName, sendGroupMessage, isBotAdmin, getUserInfo, isUserAdmin, kickUser, muteUser } from '../../utils/groupInfo.js'
+import { Config } from '../components/config.js'
+import { getGroupName, sendGroupMessage, isBotAdmin, getUserInfo, isUserAdmin, kickUser, muteUser } from '../utils/groupInfo.js'
 import { checkBannedWords } from './bannedWordCheck.js'
 import { executeLeaveGroup } from './groupCheck.js'
 import { clearRetryCount, clearMuteCount } from './muteCheck.js'
 import { addToBlacklistAuto, addToWhitelist } from './listManager.js'
 import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
-import { addUserToBlacklist } from '../../utils/yunzaiConfig.js'
-import { sleep } from '../../utils/common.js'
+import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
+import { sleep } from '../utils/common.js'
 
 // 处理标记，防止重复处理
 const processedGroups = new Set()
@@ -118,7 +118,7 @@ async function checkAndKickBlacklistUser(e) {
       return
     }
 
-    const { getUserBlacklist } = await import('../../utils/yunzaiConfig.js')
+    const { getUserBlacklist } = await import('../utils/yunzaiConfig.js')
     const blackUsers = getUserBlacklist()
 
     if (!blackUsers.includes(parseInt(userId))) {

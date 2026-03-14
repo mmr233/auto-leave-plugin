@@ -1,5 +1,5 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { exec, isGitRepo, getCurrentBranch, getRecentCommits } from '../../utils/exec.js'
+import { exec, isGitRepo, getCurrentBranch, getRecentCommits } from '../utils/exec.js'
 import path from 'node:path'
 import fs from 'node:fs'
 

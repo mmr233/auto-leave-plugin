@@ -1,5 +1,5 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { addUserToBlacklist, removeUserFromBlacklist, getUserBlacklist } from '../../utils/yunzaiConfig.js'
+import { addUserToBlacklist, removeUserFromBlacklist, getUserBlacklist } from '../utils/yunzaiConfig.js'
 
 /**
  * 用户黑名单管理

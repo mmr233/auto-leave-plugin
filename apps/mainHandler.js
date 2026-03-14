@@ -1,7 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { Config } from '../../components/config.js'
-import { checkBannedWords, handleBannedWordTrigger, handleWhitelistBannedWord } from '../../model/bannedWordCheck.js'
-import { initEventListener } from '../../model/index.js'
+import { Config } from '../components/config.js'
+import { checkBannedWords, handleBannedWordTrigger, handleWhitelistBannedWord } from '../model/bannedWordCheck.js'
+import { initEventListener } from '../model/index.js'
 
 // 初始化事件监听
 initEventListener()
@@ -13,7 +13,7 @@ export class AutoLeaveHandler extends plugin {
   constructor() {
     super({
       name: '自动退群',
-      dsc: '群成员少于50人时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理',
+      dsc: '群成员少于配置值时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理',
       event: 'message',
       priority: -1000,
       rule: []

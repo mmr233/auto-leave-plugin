@@ -1,7 +1,7 @@
-import { Config } from '../../components/config.js'
-import { getGroupName } from '../../utils/groupInfo.js'
+import { Config } from '../components/config.js'
+import { getGroupName } from '../utils/groupInfo.js'
 import { executeLeaveGroup } from './groupCheck.js'
-import { addToBlacklistAuto } from './groupCheck.js'
+import { addToBlacklistAuto } from './listManager.js'
 
 /**
  * 禁言次数记录

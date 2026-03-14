@@ -1,7 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { Config } from '../../components/config.js'
-import { addToWhitelist, removeFromWhitelist, addToBlacklist, removeFromBlacklist } from '../../model/listManager.js'
-import { clearMuteCount } from '../../model/muteCheck.js'
+import { Config } from '../components/config.js'
+import { addToWhitelist, removeFromWhitelist, addToBlacklist, removeFromBlacklist } from '../model/listManager.js'
+import { clearMuteCount } from '../model/muteCheck.js'
 
 /**
  * 白名单管理

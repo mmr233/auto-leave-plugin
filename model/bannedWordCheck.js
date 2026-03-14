@@ -1,6 +1,8 @@
-import { Config } from '../../components/config.js'
-import { getGroupName, sendGroupMessage } from '../../utils/groupInfo.js'
+import { Config } from '../components/config.js'
+import { getGroupName, sendGroupMessage, getUserInfo, isBotAdmin, isUserAdmin, muteUser, kickUser } from '../utils/groupInfo.js'
 import { executeLeaveGroup } from './groupCheck.js'
+import { addToBlacklistAuto } from './listManager.js'
+import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 
 /**
  * 违禁词触发记录

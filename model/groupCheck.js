@@ -1,6 +1,6 @@
-import { Config } from '../../components/config.js'
-import { getGroupName, leaveGroup, sendGroupMessage, sendPrivateMessage } from '../../utils/groupInfo.js'
-import { getMasterQQ, sleep } from '../../utils/common.js'
+import { Config } from '../components/config.js'
+import { getGroupName, leaveGroup, sendGroupMessage, sendPrivateMessage } from '../utils/groupInfo.js'
+import { getMasterQQ, sleep } from '../utils/common.js'
 
 /**
  * 执行退群操作

@@ -1,6 +1,6 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { Config } from '../../components/config.js'
-import { splitByComma } from '../../utils/common.js'
+import { Config } from '../components/config.js'
+import { splitByComma } from '../utils/common.js'
 
 /**
  * 违禁词管理

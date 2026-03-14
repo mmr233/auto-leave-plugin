@@ -1,4 +1,4 @@
-import { Config } from '../../components/config.js'
+import { Config } from '../components/config.js'
 
 /**
  * 自动加入黑名单
