@@ -9,17 +9,16 @@ export async function setConfigData(data, { Result }) {
     const currentConfig = Config.loadConfig()
 
     // 提取违禁词数据（单独处理）
-    const { bannedWords, bannedWordsCount, ...restData } = data
+    const { bannedWordsList, ...restData } = data
 
     // 处理违禁词列表
-    if (bannedWords !== undefined) {
-      const wordsArray = bannedWords
-        .split('\n')
-        .map(word => word.trim())
-        .filter(word => word.length > 0)
-
-      // 去重
-      const uniqueWords = [...new Set(wordsArray)]
+    if (bannedWordsList !== undefined) {
+      // 去重并过滤空字符串
+      const uniqueWords = [...new Set(
+        bannedWordsList
+          .map(word => word.trim())
+          .filter(word => word.length > 0)
+      )]
 
       if (Config.saveBannedWords(uniqueWords)) {
         logger.info(`[自动退群] 违禁词列表已更新，共 ${uniqueWords.length} 个`)

@@ -9,9 +9,7 @@ export async function getConfigData() {
 
   return {
     ...config,
-    // 违禁词列表（转换为换行分隔的字符串）
-    bannedWords: bannedWords.join('\n'),
-    // 违禁词数量统计
-    bannedWordsCount: bannedWords.length
+    // 违禁词列表（数组形式，用于 Select tags 组件）
+    bannedWordsList: bannedWords
   }
 }
