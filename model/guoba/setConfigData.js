@@ -9,15 +9,15 @@ export async function setConfigData(data, { Result }) {
     const currentConfig = Config.loadConfig()
 
     // 提取违禁词数据（单独处理）
-    const { bannedWordsList, ...restData } = data
+    const { bannedWordsText, ...restData } = data
 
     // 处理违禁词列表
-    // 只有当 bannedWordsList 是有效数组时才更新
-    if (Array.isArray(bannedWordsList)) {
-      // 去重并过滤空字符串
+    if (bannedWordsText !== undefined) {
+      // 按换行分割，去重并过滤空字符串
       const uniqueWords = [...new Set(
-        bannedWordsList
-          .map(word => String(word).trim())
+        String(bannedWordsText)
+          .split('\n')
+          .map(word => word.trim())
           .filter(word => word.length > 0)
       )]
 

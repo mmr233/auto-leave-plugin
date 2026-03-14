@@ -9,7 +9,7 @@ export async function getConfigData() {
 
   return {
     ...config,
-    // 违禁词列表（数组形式，用于 Select tags 组件）
-    bannedWordsList: bannedWords
+    // 违禁词列表（转换为换行分隔的文本）
+    bannedWordsText: bannedWords.join('\n')
   }
 }
