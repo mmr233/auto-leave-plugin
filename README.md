@@ -11,7 +11,7 @@
 cd Yunzai/plugins
 
 # 克隆插件
-git clone https://github.com/YourName/auto-leave-plugin.git
+git clone https://github.com/mmr233/auto-leave-plugin.git
 ```
 
 ## 依赖要求
@@ -49,6 +49,13 @@ git clone https://github.com/YourName/auto-leave-plugin.git
 | `t取消拉黑用户 QQ号` | 从用户黑名单移除 | 主人 |
 | `t用户黑名单` | 查看用户黑名单列表 | 主人 |
 
+### 插件更新
+| 指令 | 说明 | 权限 |
+|------|------|------|
+| `#自动退群更新` | 更新插件 | 主人 |
+| `#自动退群强制更新` | 强制更新（丢弃本地修改） | 主人 |
+| `#自动退群更新日志` | 查看更新日志 | 主人 |
+
 ## 配置说明
 
 插件支持通过锅巴面板进行可视化配置，也可直接编辑配置文件：
@@ -79,6 +86,11 @@ git clone https://github.com/YourName/auto-leave-plugin.git
 - 支持自动踢出黑名单用户
 
 ## 更新日志
+
+### v1.1.0
+- 新增插件 Git 更新功能
+- 新增更新日志查看功能
+- 新增命令执行工具模块
 
 ### v1.0.0
 - 初始版本

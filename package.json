@@ -1,8 +1,8 @@
 {
   "name": "auto-leave-plugin",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "自动退群插件 - 群成员少于50人时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理",
-  "author": "@YourName",
+  "author": "@mmr233",
   "main": "index.js",
   "type": "module",
   "dependencies": {

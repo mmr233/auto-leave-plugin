@@ -5,9 +5,9 @@ export const pluginInfo = {
   description: '群成员少于50人时自动退群，违禁词自动退群，被禁言自动退群，白名单群聊违禁词管理',
 
   // 作者信息
-  author: ['@YourName'],
-  authorLink: ['https://github.com/YourName'],
-  link: 'https://github.com/YourName/auto-leave-plugin',
+  author: ['@mmr233'],
+  authorLink: ['https://github.com/mmr233'],
+  link: 'https://github.com/mmr233/auto-leave-plugin',
 
   // 版本兼容
   isV3: true,
