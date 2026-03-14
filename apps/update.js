@@ -17,7 +17,7 @@ export class UpdateHandler extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: '^#?自动退群(强制)?更新(日志)?$',
+          reg: '^#?[tT]更新(强制)?(日志)?$',
           fnc: 'update',
           permission: 'master'
         }
@@ -39,8 +39,9 @@ export class UpdateHandler extends plugin {
     updateLock = true
 
     try {
-      const isLog = e.msg.includes('日志')
-      const isForce = e.msg.includes('强制')
+      const msg = e.msg.replace(/^#?[tT]更新/, '')
+      const isLog = msg.includes('日志')
+      const isForce = msg.includes('强制')
 
       // 构造命令类型
       const Type = isLog
