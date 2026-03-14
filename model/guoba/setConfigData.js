@@ -12,11 +12,12 @@ export async function setConfigData(data, { Result }) {
     const { bannedWordsList, ...restData } = data
 
     // 处理违禁词列表
-    if (bannedWordsList !== undefined) {
+    // 只有当 bannedWordsList 是有效数组时才更新
+    if (Array.isArray(bannedWordsList)) {
       // 去重并过滤空字符串
       const uniqueWords = [...new Set(
         bannedWordsList
-          .map(word => word.trim())
+          .map(word => String(word).trim())
           .filter(word => word.length > 0)
       )]
 

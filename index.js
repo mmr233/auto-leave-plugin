@@ -7,6 +7,13 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const pluginRoot = __dirname
 
+// 初始化配置模块（确保配置目录和文件被创建）
+import { Config } from './components/config.js'
+
+// 初始化事件监听
+import { initEventListener } from './model/index.js'
+initEventListener()
+
 // 加载 apps 目录下的所有模块
 const apps = {}
 const appsDir = path.join(pluginRoot, 'apps')
