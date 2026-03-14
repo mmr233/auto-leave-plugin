@@ -21,12 +21,12 @@ export class UpdateHandler extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: '^#?自动退群(强制)?更新$',
+          reg: '^[tT](强制)?更新$',
           fnc: 'update',
           permission: 'master'
         },
         {
-          reg: '^#?自动退群更新日志$',
+          reg: '^[tT]更新日志$',
           fnc: 'updateLog',
           permission: 'master'
         }
