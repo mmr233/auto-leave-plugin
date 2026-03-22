@@ -30,6 +30,6 @@
   },
   "notification": {
     "enabled": true,
-    "message": "🚨 自动退群通知 🚨\n📍 群号：{groupId}\n📝 群名：{groupName}\n⚠️ 退群原因：{reason}\n🕐 时间：{time}"
+    "message": "自动退群通知\n\n群号：{groupId}\n\n群名：{groupName}\n\n退群原因：{reason}\n\n时间：{time}"
   }
 }

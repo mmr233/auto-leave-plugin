@@ -11,6 +11,11 @@ const pluginRoot = path.join(__dirname, '..')
 
 // 数据目录（Yunzai/data/自动退群）
 const dataRoot = path.join(process.cwd(), 'data/自动退群')
+const DEFAULT_NOTIFICATION_MESSAGE = '自动退群通知\n\n群号：{groupId}\n\n群名：{groupName}\n\n退群原因：{reason}\n\n时间：{time}'
+const LEGACY_NOTIFICATION_MESSAGES = [
+  '自动退群通知\n群号：{groupId}\n群名：{groupName}\n退群原因：{reason}\n时间：{time}',
+  '🚨 自动退群通知 🚨\n📍 群号：{groupId}\n📝 群名：{groupName}\n⚠️ 退群原因：{reason}\n🕐 时间：{time}'
+]
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -58,7 +63,7 @@ const DEFAULT_CONFIG = {
   // 通知相关设置
   notification: {
     enabled: true,
-    message: '自动退群通知\n群号：{groupId}\n群名：{groupName}\n退群原因：{reason}\n时间：{time}'
+    message: DEFAULT_NOTIFICATION_MESSAGE
   }
 }
 
@@ -160,6 +165,11 @@ class ConfigManager {
 
       // 深度合并配置
       const mergedConfig = lodash.merge({}, defaultConfig, userConfig)
+
+      // 仅当用户仍在使用旧默认模板时，自动迁移到新的通知文案
+      if (LEGACY_NOTIFICATION_MESSAGES.includes(mergedConfig?.notification?.message)) {
+        mergedConfig.notification.message = DEFAULT_NOTIFICATION_MESSAGE
+      }
 
       // 检查是否需要更新配置文件（新增配置项）
       if (!lodash.isEqual(userConfig, mergedConfig)) {
