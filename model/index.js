@@ -167,15 +167,18 @@ async function checkAndKickBlacklistUser(e) {
  * 初始化事件监听
  */
 export function initEventListener() {
-  if (Bot && Bot.on) {
-    // 监听群成员增加事件（机器人进群和用户进群）
-    Bot.on('notice.group.increase', (e) => {
-      handleGroupIncrease(e)
-    })
-    // 监听群禁言事件
-    Bot.on('notice.group.ban', (e) => {
-      import('./muteCheck.js').then(module => module.handleGroupMute(e))
-    })
-    logger.info('[自动退群] 插件已加载，开始监听群成员变化和禁言事件')
+  if (!(Bot && Bot.on)) {
+    return false
   }
+
+  // 监听群成员增加事件（机器人进群和用户进群）
+  Bot.on('notice.group.increase', (e) => {
+    handleGroupIncrease(e)
+  })
+  // 监听群禁言事件
+  Bot.on('notice.group.ban', (e) => {
+    import('./muteCheck.js').then(module => module.handleGroupMute(e))
+  })
+
+  return true
 }
