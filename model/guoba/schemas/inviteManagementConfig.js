@@ -86,31 +86,12 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.notifyUsers',
     label: '通知用户',
-    bottomHelpMessage: '人工审核通知会同时私聊这些用户',
-    component: 'GSubForm',
+    bottomHelpMessage: '人工审核通知会同时私聊这些好友，刷新后按好友昵称回显',
+    component: 'GSelectFriend',
     componentProps: {
-      multiple: true,
-      showRemove: true,
-      showAdd: true,
-      schemas: [
-        {
-          field: 'userId',
-          label: 'QQ号',
-          required: true,
-          component: 'Input',
-          componentProps: {
-            placeholder: '请输入QQ号'
-          }
-        },
-        {
-          field: 'remark',
-          label: '备注',
-          component: 'Input',
-          componentProps: {
-            placeholder: '可选'
-          }
-        }
-      ]
+      placeholder: '点击选择通知用户',
+      showSelected: true,
+      maxTagCount: 8
     }
   },
   {
@@ -134,7 +115,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.whiteGroups',
     label: '邀请白名单群',
-    bottomHelpMessage: '这些群的邀请会自动同意；进群后跳过人数检查',
+    bottomHelpMessage: '这些群的邀请会自动同意；生效时也会视为白名单群跳过人数检查',
     component: 'GSelectGroup',
     componentProps: {
       placeholder: '点击选择白名单群，可手动输入',

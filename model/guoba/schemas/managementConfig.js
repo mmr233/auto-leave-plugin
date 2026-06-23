@@ -17,7 +17,7 @@ export const managementConfigSchema = [
   {
     field: 'whitelistGroups',
     label: '白名单群聊',
-    bottomHelpMessage: '白名单群聊不会自动退群，且支持违禁词管理功能',
+    bottomHelpMessage: '全局白名单群聊不会自动退群，且支持违禁词管理功能；邀请白名单群生效时也会参与白名单判断',
     component: 'GSelectGroup',
     componentProps: {
       placeholder: '点击选择要加入白名单的群聊',
@@ -53,10 +53,12 @@ export const managementConfigSchema = [
   {
     field: 'blacklistUsers',
     label: '黑名单用户',
-    bottomHelpMessage: '这些用户进入白名单群聊后将被自动踢出',
+    bottomHelpMessage: '这些用户进入白名单群聊后将被自动踢出，刷新后按好友昵称回显',
     component: 'GSelectFriend',
     componentProps: {
-      placeholder: '点击选择要加入黑名单的用户'
+      placeholder: '点击选择要加入黑名单的用户',
+      showSelected: true,
+      maxTagCount: 8
     }
   },
   {

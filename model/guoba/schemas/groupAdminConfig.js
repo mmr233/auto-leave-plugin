@@ -83,7 +83,8 @@ export const groupAdminConfigSchema = [
     component: 'GSelectFriend',
     componentProps: {
       placeholder: '点击选择白名单用户',
-      multiple: true
+      showSelected: true,
+      maxTagCount: 8
     }
   },
   {

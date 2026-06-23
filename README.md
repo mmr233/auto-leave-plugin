@@ -103,9 +103,9 @@ cd auto-leave-plugin && pnpm install
 - `inviteManagement.enabled`: 启用机器人群邀请审核
 - `inviteManagement.reviewMode`: 审核模式，0 自动同意、1 关闭不处理、2 人工审核、3 自动拒绝
 - `inviteManagement.notifyGroups`: 审核通知群
-- `inviteManagement.notifyUsers`: 审核通知用户
+- `inviteManagement.notifyUsers`: 审核通知用户，锅巴中可从好友列表选择
 - `inviteManagement.blackGroups`: 邀请黑名单群
-- `inviteManagement.whiteGroups`: 邀请白名单群
+- `inviteManagement.whiteGroups`: 邀请白名单群，会自动同意邀请，并在白名单判断中生效
 
 ### 群管配置
 - `groupAdmin.enabled`: 启用群管模块，默认关闭，避免和其他群管插件冲突
@@ -130,11 +130,13 @@ cd auto-leave-plugin && pnpm install
 ### 机器人群邀请审核
 机器人收到群邀请时，可按配置自动同意、自动拒绝、关闭不处理或转人工审核。人工审核会向通知群和通知用户发送简洁文本，处理人可引用通知发送 `#确认加群` / `#拒绝加群`，也可直接发送 `#确认加群 群号` / `#拒绝加群 群号`。
 
+邀请白名单群用于邀请阶段自动同意；生效时也会视为白名单群，进群后跳过人数检查。白名单群管理里的群聊白名单是全局白名单入口，适合长期管理不会自动退群、违禁词管理等行为。
+
 ### 白名单群管理
 白名单群聊不受上述退群条件影响，但启用了违禁词管理功能：
 - 普通用户发送违禁词会被禁言/踢出
 - 管理员发送违禁词会收到特殊回复
-- 支持自动踢出黑名单用户
+- 支持自动踢出黑名单用户，锅巴中可从好友列表选择黑名单用户
 
 ### 群管黑名单说明
 群管不再维护独立用户黑名单。`#踢黑` 和群违禁词的 `踢黑` 处理方式会写入 `T用户黑名单` 使用的同一份 Yunzai 用户黑名单，并且只对白名单群聊开放。黑名单用户入群后的自动踢出仍由白名单群管理功能处理；群管只提供可关闭的申请阶段拒绝能力。

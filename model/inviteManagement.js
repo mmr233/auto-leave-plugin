@@ -62,14 +62,16 @@ export function normalizeNotifyUsers(value) {
   const users = []
   const seen = new Set()
   for (const item of value) {
-    const userId = toId(typeof item === 'object' ? item.userId : item)
+    const userId = toId(typeof item === 'object'
+      ? (item.userId ?? item.user_id ?? item.value ?? item.id ?? item.qq)
+      : item)
     if (!userId || seen.has(userId)) {
       continue
     }
     seen.add(userId)
     users.push({
       userId,
-      remark: typeof item === 'object' ? String(item.remark || '') : ''
+      remark: typeof item === 'object' ? String(item.remark || item.nickname || item.label || '') : ''
     })
   }
   return users

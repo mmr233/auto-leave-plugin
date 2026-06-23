@@ -20,6 +20,23 @@ function normalizeGroupSelectValues(value) {
   return [...new Set(groups)]
 }
 
+function normalizeFriendSelectValues(value) {
+  const list = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value])
+  const users = []
+
+  for (const item of list) {
+    const raw = typeof item === 'object' && item !== null
+      ? (item.user_id ?? item.userId ?? item.value ?? item.id ?? item.qq)
+      : item
+    const userId = parseInt(raw)
+    if (!isNaN(userId) && userId > 0) {
+      users.push(userId)
+    }
+  }
+
+  return [...new Set(users)]
+}
+
 /**
  * 保存配置数据
  */
@@ -70,11 +87,7 @@ export async function setConfigData(data, { Result }) {
 
     // 处理黑名单用户（GSelectFriend 组件返回数组）
     if (blacklistUsers !== undefined) {
-      const userList = [...new Set(
-        Array.isArray(blacklistUsers)
-          ? blacklistUsers.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-          : []
-      )]
+      const userList = normalizeFriendSelectValues(blacklistUsers)
 
       if (saveUserBlacklist(userList)) {
         logger.info(`[自动退群] 黑名单用户已更新，共 ${userList.length} 个`)
@@ -91,9 +104,7 @@ export async function setConfigData(data, { Result }) {
 
     if (config.groupAdmin) {
       if (Array.isArray(config.groupAdmin.whiteQQ)) {
-        config.groupAdmin.whiteQQ = [...new Set(
-          config.groupAdmin.whiteQQ.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-        )]
+        config.groupAdmin.whiteQQ = normalizeFriendSelectValues(config.groupAdmin.whiteQQ)
       }
 
       if (config.groupAdmin.groupVerify?.openGroup !== undefined) {
@@ -143,8 +154,13 @@ export async function setConfigData(data, { Result }) {
       }
     }
 
-    // 合并配置
-    const mergedConfig = lodash.merge({}, currentConfig, config)
+    // 合并配置，数组字段必须整体替换，避免删除选择项后旧值按下标残留。
+    const mergedConfig = lodash.mergeWith({}, currentConfig, config, (objValue, srcValue) => {
+      if (Array.isArray(srcValue)) {
+        return srcValue
+      }
+      return undefined
+    })
 
     // 保存配置
     if (Config.saveConfig(mergedConfig)) {
