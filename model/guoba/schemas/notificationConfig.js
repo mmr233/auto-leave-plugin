@@ -1,6 +1,8 @@
 /**
  * 通知配置 Schema
  */
+const NOTIFICATION_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{reason}=退群原因，{time}=通知发送时间'
+
 export const notificationConfigSchema = [
   {
     component: 'SOFT_GROUP_BEGIN',
@@ -16,7 +18,7 @@ export const notificationConfigSchema = [
   {
     field: 'notification.message',
     label: '通知消息模板',
-    bottomHelpMessage: '可用变量: {groupId}, {groupName}, {reason}, {time}',
+    bottomHelpMessage: NOTIFICATION_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入通知消息模板',

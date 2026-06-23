@@ -1,6 +1,14 @@
 /**
  * 消息配置 Schema
  */
+const MEMBER_LEAVE_VARIABLE_HELP = '变量说明：{memberCount}=当前群人数，{minMemberCount}=配置的最低人数'
+const WHITELIST_JOIN_VARIABLE_HELP = '变量说明：{groupId}=群号'
+const MUTE_LEAVE_VARIABLE_HELP = '变量说明：{muteCount}=当前累计禁言次数，{muteCountLimit}=触发退群的禁言次数上限'
+const INVITE_COMMON_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{userId}=邀请人QQ，{nickname}=邀请人昵称，{reviewMode}=当前审核模式'
+const INVITE_REVIEW_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{requestId}=审核请求ID，{expireMinutes}=请求有效分钟数`
+const INVITE_EXPIRE_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{expireMinutes}=请求有效分钟数，{reviewMode}=当前审核模式'
+const INVITE_ERROR_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{error}=处理失败时的错误信息`
+
 export const messageConfigSchema = [
   {
     component: 'SOFT_GROUP_BEGIN',
@@ -17,7 +25,7 @@ export const messageConfigSchema = [
   {
     field: 'leaveMessage',
     label: '成员不足退群提示',
-    bottomHelpMessage: '可用变量: {memberCount}, {minMemberCount}',
+    bottomHelpMessage: MEMBER_LEAVE_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入退群提示消息'
@@ -34,7 +42,7 @@ export const messageConfigSchema = [
   {
     field: 'whitelistJoinMessage',
     label: '白名单进群提示',
-    bottomHelpMessage: '可用变量: {groupId}',
+    bottomHelpMessage: WHITELIST_JOIN_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入白名单进群提示'
@@ -51,7 +59,7 @@ export const messageConfigSchema = [
   {
     field: 'muteLeaveMessage',
     label: '禁言退群提示',
-    bottomHelpMessage: '可用变量: {muteCount}, {muteCountLimit}',
+    bottomHelpMessage: MUTE_LEAVE_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入禁言退群提示'
@@ -76,7 +84,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.reviewNotification',
     label: '审核通知模板',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}, {requestId}, {expireMinutes}',
+    bottomHelpMessage: INVITE_REVIEW_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入审核通知模板',
@@ -86,7 +94,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.inviteSubmitted',
     label: '提交审核通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {expireMinutes}',
+    bottomHelpMessage: INVITE_EXPIRE_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入提交审核通知',
@@ -96,7 +104,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.inviteApproved',
     label: '邀请通过通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入邀请通过通知',
@@ -106,7 +114,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.inviteRejected',
     label: '邀请拒绝通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入邀请拒绝通知',
@@ -116,7 +124,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.resultApproved',
     label: '同意结果回复',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入同意结果回复',
@@ -126,7 +134,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.resultRejected',
     label: '拒绝结果回复',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入拒绝结果回复',
@@ -136,7 +144,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.autoApproved',
     label: '自动同意通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入自动同意通知',
@@ -146,7 +154,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.autoRejected',
     label: '自动拒绝通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入自动拒绝通知',
@@ -156,7 +164,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.blackGroupRejected',
     label: '黑名单群拒绝通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入黑名单群拒绝通知',
@@ -166,7 +174,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.reviewDisabled',
     label: '审核关闭通知',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入审核关闭通知',
@@ -176,6 +184,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.noNotifyTarget',
     label: '无通知目标提示',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入无通知目标提示',
@@ -193,6 +202,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.permissionDenied',
     label: '权限不足提示',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入权限不足提示'
@@ -201,7 +211,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.processFailed',
     label: '处理失败提示',
-    bottomHelpMessage: '变量: {error}',
+    bottomHelpMessage: INVITE_ERROR_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入处理失败提示'
@@ -210,7 +220,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.blackGroupRejectReason',
     label: '黑名单群拒绝原因',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入黑名单群拒绝原因'
@@ -219,7 +229,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.autoRejectReason',
     label: '自动拒绝原因',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入自动拒绝原因'
@@ -228,7 +238,7 @@ export const messageConfigSchema = [
   {
     field: 'inviteMessages.manualRejectReason',
     label: '人工拒绝原因',
-    bottomHelpMessage: '变量: {groupId}, {groupName}, {userId}, {nickname}',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
       placeholder: '请输入人工拒绝原因'

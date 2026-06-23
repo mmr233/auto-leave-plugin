@@ -144,7 +144,7 @@ export const managementConfigSchema = [
   {
     field: 'managementMessages.muteWarning',
     label: '禁言警告消息',
-    bottomHelpMessage: '可用变量: {duration}',
+    bottomHelpMessage: '变量说明：{duration}=禁言时长分钟数',
     component: 'Input',
     componentProps: {
       placeholder: '请输入禁言警告消息'
