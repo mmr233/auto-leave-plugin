@@ -5,13 +5,31 @@ import path from 'node:path'
 /**
  * Yunzai 配置文件路径
  */
-const yunzaiConfigPath = '/root/Yunzai/config/config/other.yaml'
+function getPossibleConfigPaths() {
+  return [
+    path.join(process.cwd(), 'config', 'config', 'other.yaml'),
+    path.join(process.cwd(), 'config', 'other.yaml'),
+    path.join(process.cwd(), '..', 'config', 'config', 'other.yaml'),
+    path.join(process.cwd(), '..', 'config', 'other.yaml'),
+    '/root/Yunzai/config/config/other.yaml'
+  ]
+}
+
+function getExistingConfigPath() {
+  for (const configPath of getPossibleConfigPaths()) {
+    if (fs.existsSync(configPath)) {
+      return configPath
+    }
+  }
+  return getPossibleConfigPaths()[0]
+}
 
 /**
  * 初始化 Yunzai 配置文件
  */
 export function initYunzaiConfig() {
   try {
+    const yunzaiConfigPath = getExistingConfigPath()
     if (!fs.existsSync(yunzaiConfigPath)) {
       // 创建目录
       const configDir = path.dirname(yunzaiConfigPath)
@@ -34,6 +52,7 @@ export function initYunzaiConfig() {
  */
 export function getUserBlacklist() {
   try {
+    const yunzaiConfigPath = getExistingConfigPath()
     if (!fs.existsSync(yunzaiConfigPath)) {
       logger.warn('[自动退群] Yunzai配置文件不存在，创建默认配置')
       return []
@@ -53,6 +72,7 @@ export function getUserBlacklist() {
  */
 export function saveUserBlacklist(blackUsers) {
   try {
+    const yunzaiConfigPath = getExistingConfigPath()
     let config = {}
 
     if (fs.existsSync(yunzaiConfigPath)) {

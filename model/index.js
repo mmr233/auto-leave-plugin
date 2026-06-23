@@ -7,6 +7,8 @@ import { addToBlacklistAuto, addToWhitelist } from './listManager.js'
 import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
 import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
+import { initGroupAdminRuntime } from './groupAdminRuntime.js'
+import { normalizeIdList } from './inviteManagement.js'
 
 // 处理标记，防止重复处理
 const processedGroups = new Set()
@@ -49,12 +51,15 @@ async function processGroupJoin(e) {
 
     const groupId = e.group_id
     logger.info(`[自动退群] 检测到机器人被拉入群: ${groupId}, 机器人ID: ${botId}`)
+    const config = Config.loadConfig()
 
     // 检查黑名单 - 黑名单优先级最高
-    const blacklist = Config.getBlacklist()
-    if (blacklist.includes(parseInt(groupId))) {
+    const blacklist = [
+      ...Config.getBlacklist().map(item => String(item)),
+      ...normalizeIdList(config.inviteManagement?.blackGroups)
+    ]
+    if (blacklist.includes(String(groupId))) {
       logger.warn(`[自动退群] 群 ${groupId} 在黑名单中，立即退群`)
-      const config = Config.loadConfig()
       const groupName = await getGroupName(parseInt(groupId), e.bot || Bot)
       await executeLeaveGroup({
         groupId,
@@ -68,11 +73,13 @@ async function processGroupJoin(e) {
     }
 
     // 检查白名单 - 白名单群聊不检查成员数量
-    const whitelist = Config.getWhitelist()
-    if (whitelist.includes(parseInt(groupId))) {
+    const whitelist = [
+      ...Config.getWhitelist().map(item => String(item)),
+      ...normalizeIdList(config.inviteManagement?.whiteGroups)
+    ]
+    if (whitelist.includes(String(groupId))) {
       logger.info(`[自动退群] 群 ${groupId} 在白名单中，跳过检查`)
       // 发送白名单进群提示
-      const config = Config.loadConfig()
       if (config.whitelistJoinMessage) {
         try {
           const message = config.whitelistJoinMessage.replace('{groupId}', groupId)
@@ -179,6 +186,8 @@ export function initEventListener() {
   Bot.on('notice.group.ban', (e) => {
     import('./muteCheck.js').then(module => module.handleGroupMute(e))
   })
+
+  initGroupAdminRuntime()
 
   return true
 }

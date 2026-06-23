@@ -16,6 +16,40 @@
     "enableUserBlacklist": true,
     "autoKickBlacklistedUsers": true
   },
+  "groupAdmin": {
+    "whiteQQ": [],
+    "blackQQ": [],
+    "noBan": false,
+    "voteBan": true,
+    "voteKick": false,
+    "outTime": 180,
+    "minNum": 4,
+    "banTime": 3600,
+    "veto": true,
+    "voteAdmin": false,
+    "groupVerify": {
+      "openGroup": [],
+      "successMsgs": {
+        "0": "验证成功，欢迎入群"
+      },
+      "mode": "精确",
+      "times": 7,
+      "remindAtLastMinute": true,
+      "time": 300,
+      "range": {
+        "min": 10,
+        "max": 100
+      },
+      "delayTime": 2
+    },
+    "groupAddNotice": {
+      "openGroup": [],
+      "msg": "有一个加群通知，管理员快去看看吧~"
+    },
+    "title": {
+      "selfApply": true
+    }
+  },
   "leaveMessage": "检测到群成员数量仅有 {memberCount} 人，少于{minMemberCount}人标准，胡桃将自动退群。",
   "blacklistMessage": "该群在黑名单中，胡桃将自动退群。",
   "whitelistJoinMessage": "胡桃已进入白名单群聊 {groupId}，将不会自动退群。",
@@ -23,10 +57,22 @@
   "muteLeaveMessage": "检测到被禁言次数已达{muteCount}次，超过{muteCountLimit}次限制，胡桃将自动退群并将此群加入黑名单。",
   "errorLeaveMessage": "出现错误，即将退群，如有疑问请联系管理员修复或申请白名单",
   "managementMessages": {
-    "muteWarning": "⚠️ 检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。",
-    "kickWarning": "🚫 你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。",
-    "blacklistUserKick": "🚫 检测到黑名单用户，已自动踢出。",
+    "muteWarning": "检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。",
+    "kickWarning": "你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。",
+    "blacklistUserKick": "检测到黑名单用户，已自动踢出。",
     "adminReply": "啊哈哈，我也是拿你没办法呢~"
+  },
+  "inviteManagement": {
+    "enabled": true,
+    "reviewMode": 2,
+    "requestExpireMinutes": 5,
+    "maxPendingRequests": 20,
+    "allowInviterConfirm": true,
+    "notifyGroups": [],
+    "notifyUsers": [],
+    "blackGroups": [],
+    "whiteGroups": [],
+    "pendingRequests": []
   },
   "notification": {
     "enabled": true,

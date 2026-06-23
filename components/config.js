@@ -14,7 +14,43 @@ const dataRoot = path.join(process.cwd(), 'data/自动退群')
 const DEFAULT_NOTIFICATION_MESSAGE = '自动退群通知\n\n群号：{groupId}\n\n群名：{groupName}\n\n退群原因：{reason}\n\n时间：{time}'
 const LEGACY_NOTIFICATION_MESSAGES = [
   '自动退群通知\n群号：{groupId}\n群名：{groupName}\n退群原因：{reason}\n时间：{time}',
-  '🚨 自动退群通知 🚨\n📍 群号：{groupId}\n📝 群名：{groupName}\n⚠️ 退群原因：{reason}\n🕐 时间：{time}'
+  '\u{1F6A8} 自动退群通知 \u{1F6A8}\n\u{1F4CD} 群号：{groupId}\n\u{1F4DD} 群名：{groupName}\n\u26A0\uFE0F 退群原因：{reason}\n\u{1F550} 时间：{time}'
+]
+
+const DEFAULT_INVITE_MANAGEMENT = {
+  enabled: true,
+  reviewMode: 2,
+  requestExpireMinutes: 5,
+  maxPendingRequests: 20,
+  allowInviterConfirm: true,
+  notifyGroups: [],
+  notifyUsers: [],
+  blackGroups: [],
+  whiteGroups: [],
+  pendingRequests: []
+}
+
+const LEGACY_DEFAULT_TEXTS = [
+  {
+    path: 'groupAdmin.groupVerify.successMsgs.0',
+    legacy: ['\u2705 验证成功，欢迎入群'],
+    next: '验证成功，欢迎入群'
+  },
+  {
+    path: 'managementMessages.muteWarning',
+    legacy: ['\u26A0\uFE0F 检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。'],
+    next: '检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。'
+  },
+  {
+    path: 'managementMessages.kickWarning',
+    legacy: ['\u{1F6AB} 你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。'],
+    next: '你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。'
+  },
+  {
+    path: 'managementMessages.blacklistUserKick',
+    legacy: ['\u{1F6AB} 检测到黑名单用户，已自动踢出。'],
+    next: '检测到黑名单用户，已自动踢出。'
+  }
 ]
 
 // 默认配置
@@ -44,6 +80,42 @@ const DEFAULT_CONFIG = {
     autoKickBlacklistedUsers: true
   },
 
+  // 群管配置
+  groupAdmin: {
+    whiteQQ: [],
+    blackQQ: [],
+    noBan: false,
+    voteBan: true,
+    voteKick: false,
+    outTime: 180,
+    minNum: 4,
+    banTime: 3600,
+    veto: true,
+    voteAdmin: false,
+    groupVerify: {
+      openGroup: [],
+      successMsgs: {
+        0: '验证成功，欢迎入群'
+      },
+      mode: '精确',
+      times: 7,
+      remindAtLastMinute: true,
+      time: 300,
+      range: {
+        min: 10,
+        max: 100
+      },
+      delayTime: 2
+    },
+    groupAddNotice: {
+      openGroup: [],
+      msg: '有一个加群通知，管理员快去看看吧~'
+    },
+    title: {
+      selfApply: true
+    }
+  },
+
   // 退群提示消息配置
   leaveMessage: '检测到群成员数量仅有 {memberCount} 人，少于{minMemberCount}人标准，胡桃将自动退群。',
   blacklistMessage: '该群在黑名单中，胡桃将自动退群。',
@@ -54,17 +126,70 @@ const DEFAULT_CONFIG = {
 
   // 白名单群聊管理消息配置
   managementMessages: {
-    muteWarning: '⚠️ 检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。',
-    kickWarning: '🚫 你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。',
-    blacklistUserKick: '🚫 检测到黑名单用户，已自动踢出。',
+    muteWarning: '检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。',
+    kickWarning: '你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。',
+    blacklistUserKick: '检测到黑名单用户，已自动踢出。',
     adminReply: '啊哈哈，我也是拿你没办法呢~'
   },
+
+  // 机器人群邀请审核
+  inviteManagement: DEFAULT_INVITE_MANAGEMENT,
 
   // 通知相关设置
   notification: {
     enabled: true,
     message: DEFAULT_NOTIFICATION_MESSAGE
   }
+}
+
+function toId(value) {
+  const id = String(value ?? '').trim()
+  return /^\d+$/.test(id) ? id : ''
+}
+
+function collectLegacyIds(value) {
+  if (value === undefined || value === null || value === '') {
+    return []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(item => collectLegacyIds(item))
+  }
+  if (typeof value === 'object') {
+    if (value.isEnabled === false) {
+      return []
+    }
+    return [
+      ...collectLegacyIds(value.groupId),
+      ...collectLegacyIds(value.groupIdInput),
+      ...collectLegacyIds(value.groupIds)
+    ]
+  }
+  const id = toId(value)
+  return id ? [id] : []
+}
+
+function normalizeLegacyIds(value) {
+  return [...new Set(collectLegacyIds(value))]
+}
+
+function normalizeLegacyNotifyUsers(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const seen = new Set()
+  const users = []
+  for (const item of value) {
+    const userId = toId(typeof item === 'object' ? item.userId : item)
+    if (!userId || seen.has(userId)) {
+      continue
+    }
+    seen.add(userId)
+    users.push({
+      userId,
+      remark: typeof item === 'object' ? String(item.remark || '') : ''
+    })
+  }
+  return users
 }
 
 class ConfigManager {
@@ -128,6 +253,94 @@ class ConfigManager {
   }
 
   /**
+   * 迁移旧默认文案中的表情符号
+   */
+  migrateDefaultTexts(config) {
+    for (const item of LEGACY_DEFAULT_TEXTS) {
+      const value = lodash.get(config, item.path)
+      if (item.legacy.includes(value)) {
+        lodash.set(config, item.path, item.next)
+      }
+    }
+  }
+
+  /**
+   * 获取 GroupEntry_Plugin 旧配置候选路径
+   */
+  getGroupEntryConfigCandidates() {
+    return [
+      path.join(pluginRoot, '..', 'GroupEntry_Plugin', 'config', 'config.json'),
+      path.join(process.cwd(), 'plugins', 'GroupEntry_Plugin', 'config', 'config.json'),
+      path.join(process.cwd(), 'yunzai-plugins', 'GroupEntry_Plugin', 'config', 'config.json')
+    ]
+  }
+
+  /**
+   * 读取第一个存在且可解析的 JSON 配置
+   */
+  readFirstJson(paths) {
+    for (const filePath of paths) {
+      try {
+        if (!fs.existsSync(filePath)) {
+          continue
+        }
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      } catch (err) {
+        logger.warn(`[自动退群] 读取旧群邀请配置失败 ${filePath}: ${err.message}`)
+      }
+    }
+    return null
+  }
+
+  /**
+   * 迁移 GroupEntry_Plugin 的机器人群邀请管理配置
+   */
+  migrateGroupEntryInviteConfig(mergedConfig, userConfig) {
+    if (userConfig?.inviteManagement) {
+      return
+    }
+
+    const legacyConfig = this.readFirstJson(this.getGroupEntryConfigCandidates())
+    if (!legacyConfig) {
+      return
+    }
+
+    const pendingRequests = Array.isArray(legacyConfig.pendingRequests)
+      ? legacyConfig.pendingRequests.map(item => {
+          const groupId = toId(item.groupId)
+          const flag = String(item.flag || '').trim()
+          return {
+            requestId: String(item.requestId || `${groupId}-${flag || item.requestTime || Date.now()}`),
+            msgIds: normalizeLegacyIds(item.msgIds ?? item.msgId),
+            manageGroupIds: normalizeLegacyIds(item.manageGroupIds ?? item.manageGroupId),
+            groupId,
+            groupName: String(item.groupName || '未知群名'),
+            userId: toId(item.userId),
+            nickname: String(item.nickname || '未知用户'),
+            flag,
+            subType: String(item.subType || item.sub_type || 'invite'),
+            requestTime: Number(item.requestTime || Date.now())
+          }
+        }).filter(item => item.groupId && item.flag)
+      : []
+
+    mergedConfig.inviteManagement = lodash.merge({}, DEFAULT_INVITE_MANAGEMENT, {
+      enabled: true,
+      reviewMode: [0, 1, 2, 3].includes(Number(legacyConfig.reviewMode)) ? Number(legacyConfig.reviewMode) : 2,
+      requestExpireMinutes: Number(legacyConfig.requestExpireMinutes) || 5,
+      maxPendingRequests: Number(legacyConfig.maxPendingRequests) || 20,
+      allowInviterConfirm: legacyConfig.allowInviterConfirm !== false,
+      notifyGroups: normalizeLegacyIds(legacyConfig.groups),
+      notifyUsers: normalizeLegacyNotifyUsers(legacyConfig.notifyUsers),
+      blackGroups: normalizeLegacyIds(legacyConfig.blackGroups),
+      whiteGroups: normalizeLegacyIds(legacyConfig.whiteGroups),
+      pendingRequests
+    })
+
+    logger.info('[自动退群] 已导入 GroupEntry_Plugin 群邀请管理配置')
+  }
+
+  /**
    * 初始化列表配置文件
    */
   initListFile(filename, defaultValue) {
@@ -170,6 +383,9 @@ class ConfigManager {
       if (LEGACY_NOTIFICATION_MESSAGES.includes(mergedConfig?.notification?.message)) {
         mergedConfig.notification.message = DEFAULT_NOTIFICATION_MESSAGE
       }
+
+      this.migrateDefaultTexts(mergedConfig)
+      this.migrateGroupEntryInviteConfig(mergedConfig, userConfig)
 
       // 检查是否需要更新配置文件（新增配置项）
       if (!lodash.isEqual(userConfig, mergedConfig)) {

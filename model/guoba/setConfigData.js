@@ -1,5 +1,6 @@
 import { Config } from '../../components/config.js'
 import { saveUserBlacklist } from '../../utils/yunzaiConfig.js'
+import { normalizeIdList, normalizeNotifyUsers, REVIEW_MODE } from '../inviteManagement.js'
 import lodash from 'lodash'
 
 /**
@@ -77,6 +78,70 @@ export async function setConfigData(data, { Result }) {
     const config = {}
     for (let [keyPath, value] of Object.entries(restData)) {
       lodash.set(config, keyPath, value)
+    }
+
+    if (config.groupAdmin) {
+      if (Array.isArray(config.groupAdmin.whiteQQ)) {
+        config.groupAdmin.whiteQQ = [...new Set(
+          config.groupAdmin.whiteQQ.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
+        )]
+      }
+
+      if (Array.isArray(config.groupAdmin.blackQQ)) {
+        config.groupAdmin.blackQQ = [...new Set(
+          config.groupAdmin.blackQQ.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
+        )]
+      }
+
+      if (Array.isArray(config.groupAdmin.groupVerify?.openGroup)) {
+        config.groupAdmin.groupVerify.openGroup = [...new Set(
+          config.groupAdmin.groupVerify.openGroup.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
+        )]
+      }
+
+      if (Array.isArray(config.groupAdmin.groupAddNotice?.openGroup)) {
+        config.groupAdmin.groupAddNotice.openGroup = [...new Set(
+          config.groupAdmin.groupAddNotice.openGroup.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
+        )]
+      }
+
+      if (Array.isArray(config.groupAdmin.groupVerify?.successMsgs)) {
+        const successMsgs = {}
+        for (const item of config.groupAdmin.groupVerify.successMsgs) {
+          const groupId = String(item?.groupId || '').trim()
+          const msg = String(item?.msg || '').trim()
+          if (!groupId || !msg) {
+            continue
+          }
+          successMsgs[groupId] = msg
+        }
+        if (!successMsgs['0']) {
+          successMsgs['0'] = '验证成功，欢迎入群'
+        }
+        config.groupAdmin.groupVerify.successMsgs = successMsgs
+      }
+    }
+
+    if (config.inviteManagement) {
+      const invite = config.inviteManagement
+      for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups']) {
+        if (invite[key] !== undefined) {
+          invite[key] = normalizeIdList(invite[key])
+        }
+      }
+      if (invite.notifyUsers !== undefined) {
+        invite.notifyUsers = normalizeNotifyUsers(invite.notifyUsers)
+      }
+      if (invite.reviewMode !== undefined) {
+        const mode = Number(invite.reviewMode)
+        invite.reviewMode = Object.values(REVIEW_MODE).includes(mode) ? mode : REVIEW_MODE.MANUAL
+      }
+      if (invite.requestExpireMinutes !== undefined) {
+        invite.requestExpireMinutes = Math.max(1, Number(invite.requestExpireMinutes) || 5)
+      }
+      if (invite.maxPendingRequests !== undefined) {
+        invite.maxPendingRequests = Math.max(1, Number(invite.maxPendingRequests) || 20)
+      }
     }
 
     // 合并配置

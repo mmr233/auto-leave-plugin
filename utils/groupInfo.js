@@ -181,16 +181,17 @@ export async function kickUser(bot, groupId, userId) {
 export async function sendGroupMessage(bot, groupId, message) {
   try {
     if (bot.sendGroupMsg) {
-      await bot.sendGroupMsg(groupId, message)
+      return await bot.sendGroupMsg(groupId, message)
     } else if (bot.pickGroup) {
       const group = bot.pickGroup(groupId)
-      await group.sendMsg(message)
+      return await group.sendMsg(message)
     } else if (bot.sendApi) {
-      await bot.sendApi('send_group_msg', {
+      return await bot.sendApi('send_group_msg', {
         group_id: groupId,
         message: message
       })
     }
+    return false
   } catch (err) {
     logger.error(`[自动退群] 发送群消息失败: ${err.message}`)
     throw err
