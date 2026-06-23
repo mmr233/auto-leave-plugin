@@ -52,13 +52,34 @@ export const managementConfigSchema = [
   },
   {
     field: 'blacklistUsers',
-    label: '黑名单用户',
-    bottomHelpMessage: '这些用户进入白名单群聊后将被自动踢出，刷新后按好友昵称回显',
+    label: '好友黑名单用户',
+    bottomHelpMessage: '从好友列表选择黑名单用户，刷新后按好友昵称回显；非好友请使用下方手动填写',
     component: 'GSelectFriend',
     componentProps: {
       placeholder: '点击选择要加入黑名单的用户',
       showSelected: true,
       maxTagCount: 8
+    }
+  },
+  {
+    field: 'blacklistUsersManual',
+    label: '手动黑名单QQ',
+    bottomHelpMessage: '用于不在好友列表的黑名单用户，输入 QQ 后回车添加；会和上方好友选择合并保存',
+    component: 'GTags',
+    componentProps: {
+      placeholder: '输入QQ号后按回车添加',
+      allowAdd: true,
+      allowDel: true,
+      showPrompt: true,
+      promptProps: {
+        content: '请输入黑名单用户QQ：',
+        placeholder: '请输入QQ号',
+        okText: '添加',
+        rules: [
+          { required: true, message: 'QQ号不能为空' },
+          { pattern: '^\\d+$', message: 'QQ号只能包含数字' }
+        ]
+      }
     }
   },
   {

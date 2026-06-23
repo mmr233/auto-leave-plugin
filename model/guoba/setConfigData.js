@@ -45,7 +45,7 @@ export async function setConfigData(data, { Result }) {
     const currentConfig = Config.loadConfig()
 
     // 提取需要单独处理的数据
-    const { bannedWordsList, whitelistGroups, blacklistGroups, blacklistUsers, ...restData } = data
+    const { bannedWordsList, whitelistGroups, blacklistGroups, blacklistUsers, blacklistUsersManual, ...restData } = data
 
     // 处理违禁词列表（GTags 组件返回数组）
     if (bannedWordsList !== undefined) {
@@ -85,9 +85,12 @@ export async function setConfigData(data, { Result }) {
       }
     }
 
-    // 处理黑名单用户（GSelectFriend 组件返回数组）
-    if (blacklistUsers !== undefined) {
-      const userList = normalizeFriendSelectValues(blacklistUsers)
+    // 处理黑名单用户（好友选择 + 手动 QQ，统一保存到 Yunzai 用户黑名单）
+    if (blacklistUsers !== undefined || blacklistUsersManual !== undefined) {
+      const userList = normalizeFriendSelectValues([
+        ...(Array.isArray(blacklistUsers) ? blacklistUsers : []),
+        ...(Array.isArray(blacklistUsersManual) ? blacklistUsersManual : [])
+      ])
 
       if (saveUserBlacklist(userList)) {
         logger.info(`[自动退群] 黑名单用户已更新，共 ${userList.length} 个`)
