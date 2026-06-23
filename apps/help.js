@@ -262,13 +262,13 @@ export class AutoLeaveHelp extends plugin {
       },
       {
         group: '群管命令',
-        desc: '迁移自 yenai-plugin，默认走 NapCat/OneBot 兼容调用。',
+        desc: '默认关闭，可在锅巴开启总开关和各子功能开关。',
         list: [
           {
             icon: 51,
             title: '基础群管',
-            desc: '禁言、解禁、全员禁言、踢人、设置管理',
-            command: '#禁言 @用户 5分钟 / #解禁 @用户 / #全员禁言 / #踢 @用户 / #设置管理 @用户'
+            desc: '禁言、解禁、全员禁言、踢人、设置管理。踢黑仅白名单群可用',
+            command: '#禁言 @用户 5分钟 / #解禁 @用户 / #全员禁言 / #踢 @用户 / #踢黑 @用户'
           },
           {
             icon: 52,
@@ -338,6 +338,11 @@ export class AutoLeaveHelp extends plugin {
             icon: 46,
             title: '通知主人',
             desc: config.notification?.enabled ? '已开启' : '已关闭'
+          },
+          {
+            icon: 47,
+            title: '群管模块',
+            desc: config.groupAdmin?.enabled ? '已开启' : '已关闭'
           }
         ]
       })

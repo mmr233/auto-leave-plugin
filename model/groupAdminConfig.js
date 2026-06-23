@@ -124,7 +124,7 @@ export class GroupBannedWordsModel {
   addBannedWord(groupId, words, matchType = '精确', penaltyType = '禁', addedBy = '') {
     const state = this.getGroupState(groupId)
     if (state.bannedWords[words]) {
-      throw new Error(`❎ 违禁词${words}已存在`)
+      throw new Error(`违禁词${words}已存在`)
     }
 
     const matchTypeId = Number(Object.entries(bannedWordMatchTypeMap).find(([, label]) => label === (matchType || '精确'))?.[0] || 1)
@@ -147,7 +147,7 @@ export class GroupBannedWordsModel {
   deleteBannedWord(groupId, words) {
     const state = this.getGroupState(groupId)
     if (!state.bannedWords[words]) {
-      throw new Error(`❎ 违禁词${words}不存在`)
+      throw new Error(`违禁词${words}不存在`)
     }
     delete state.bannedWords[words]
     this.saveGroupState(groupId, state)
@@ -158,7 +158,7 @@ export class GroupBannedWordsModel {
     const state = this.getGroupState(groupId)
     const item = state.bannedWords[words]
     if (!item) {
-      throw new Error(`❎ 违禁词${words}不存在`)
+      throw new Error(`违禁词${words}不存在`)
     }
     return {
       ...item,
@@ -273,7 +273,16 @@ function saveTasks(tasks) {
   writeJson(muteTaskFile, tasks.map(normalizeTask))
 }
 
+function isScheduledMuteEnabled() {
+  const config = Config.loadConfig()
+  return config.groupAdmin?.enabled === true && config.groupAdmin?.scheduledMuteEnabled !== false
+}
+
 async function executeMuteTask(task) {
+  if (!isScheduledMuteEnabled()) {
+    return
+  }
+
   const bot = task.botId && Bot?.[task.botId] ? Bot[task.botId] : getBot(Bot)
   const group = getGroup(bot, task.groupId)
   if (!group) {
@@ -343,7 +352,7 @@ export class GroupAdminService {
     }
 
     if (list.length === 0) {
-      throw new Error('❎ 该群没有被禁言的人')
+      throw new Error('该群没有被禁言的人')
     }
 
     if (!detail) {
@@ -371,7 +380,7 @@ export class GroupAdminService {
     const groupConfig = config || Config.loadConfig()
     const group = getGroup(this.bot, groupId)
     if (!group) {
-      throw new Error('❎ 未找到群对象')
+      throw new Error('未找到群对象')
     }
 
     const unitKey = String(unit || '秒').toUpperCase?.() ? String(unit || '秒').toUpperCase() : String(unit || '秒')
@@ -388,32 +397,32 @@ export class GroupAdminService {
     const handleOne = async id => {
       const targetId = Number(id) || id
       if (!/^\d{5,}$/.test(String(targetId))) {
-        throw new Error('❎ 请输入正确的QQ号')
+        throw new Error('请输入正确的QQ号')
       }
       if (time !== 0 && masters.has(Number(targetId))) {
-        throw new Error('❎ 该命令对主人无效')
+        throw new Error('该命令对主人无效')
       }
       const info = await getGroupMemberInfo(this.bot, groupId, targetId, group)
       if (!info) {
-        throw new Error(`❎ 该群没有${Array.isArray(userId) ? targetId : '这个人'}哦~`)
+        throw new Error(`该群没有${Array.isArray(userId) ? targetId : '这个人'}`)
       }
       if (info.role === 'owner') {
-        throw new Error('❎ 权限不足，该命令对群主无效')
+        throw new Error('权限不足，该命令对群主无效')
       }
       if (info.role === 'admin') {
         if (botRole !== 'owner') {
-          throw new Error('❎ 权限不足，需要群主权限')
+          throw new Error('权限不足，需要群主权限')
         }
         if (!isMaster) {
-          throw new Error('❎ 只有主人才能对管理执行该命令')
+          throw new Error('只有主人才能对管理执行该命令')
         }
       }
       if (time !== 0 && whiteUsers.includes(Number(targetId)) && !isMaster) {
-        throw new Error(`❎ ${Array.isArray(userId) ? targetId : '该用户'}为白名单成员，不可操作`)
+        throw new Error(`${Array.isArray(userId) ? targetId : '该用户'}为白名单成员，不可操作`)
       }
       const ok = await muteGroupMember(this.bot, groupId, targetId, seconds)
       if (!ok) {
-        throw new Error(`❎ ${time === 0 ? '解除禁言' : '禁言'}失败`)
+        throw new Error(`${time === 0 ? '解除禁言' : '禁言'}失败`)
       }
       return getMemberDisplayName(info, targetId)
     }
@@ -423,18 +432,18 @@ export class GroupAdminService {
       for (const id of userId) {
         names.push(await handleOne(id))
       }
-      return time === 0 ? `✅ 已将「${names.join('，')}」解除禁言` : `✅ 已将「${names.join('，')}」禁言${time}${unit}`
+      return time === 0 ? `已将「${names.join('，')}」解除禁言` : `已将「${names.join('，')}」禁言${time}${unit}`
     }
 
     const name = await handleOne(userId)
-    return time === 0 ? `✅ 已将「${name}」解除禁言` : `✅ 已将「${name}」禁言${time}${unit}`
+    return time === 0 ? `已将「${name}」解除禁言` : `已将「${name}」禁言${time}${unit}`
   }
 
   async kickMember(groupId, userId, executor, block = false, config) {
     const groupConfig = config || Config.loadConfig()
     const group = getGroup(this.bot, groupId)
     if (!group) {
-      throw new Error('❎ 未找到群对象')
+      throw new Error('未找到群对象')
     }
 
     const whiteUsers = (groupConfig.groupAdmin?.whiteQQ || []).map(item => Number(item))
@@ -449,33 +458,33 @@ export class GroupAdminService {
     const handleOne = async id => {
       const targetId = Number(id) || id
       if (!/^\d{5,}$/.test(String(targetId))) {
-        throw new Error('❎ 请输入正确的QQ号')
+        throw new Error('请输入正确的QQ号')
       }
       if (masters.has(Number(targetId))) {
-        throw new Error('❎ 该命令对主人无效')
+        throw new Error('该命令对主人无效')
       }
       const info = await getGroupMemberInfo(this.bot, groupId, targetId, group)
       if (!info) {
-        throw new Error(`❎ 这个群没有${Array.isArray(userId) ? targetId : '这个人'}哦~`)
+        throw new Error(`这个群没有${Array.isArray(userId) ? targetId : '这个人'}`)
       }
       if (info.role === 'owner') {
-        throw new Error('❎ 权限不足，该命令对群主无效')
+        throw new Error('权限不足，该命令对群主无效')
       }
       if (info.role === 'admin') {
         if (botRole !== 'owner') {
-          throw new Error('❎ 权限不足，需要群主权限')
+          throw new Error('权限不足，需要群主权限')
         }
         if (!isMaster) {
-          throw new Error('❎ 只有主人才能对管理执行该命令')
+          throw new Error('只有主人才能对管理执行该命令')
         }
       }
       if (whiteUsers.includes(Number(targetId)) && !isMaster) {
-        throw new Error(`❎ ${Array.isArray(userId) ? targetId : '该用户'}是白名单成员，不可操作`)
+        throw new Error(`${Array.isArray(userId) ? targetId : '该用户'}是白名单成员，不可操作`)
       }
 
       const ok = await kickGroupMember(this.bot, groupId, targetId, !!block)
       if (!ok) {
-        throw new Error(`❎ 踢出${targetId}失败`)
+        throw new Error(`踢出${targetId}失败`)
       }
       return targetId
     }
@@ -485,10 +494,10 @@ export class GroupAdminService {
       for (const id of userId) {
         kicked.push(await handleOne(id))
       }
-      return `✅ 已将「${kicked.join('，')}」踢出群聊`
+      return `已将「${kicked.join('，')}」踢出群聊`
     }
 
-    return `✅ 已将「${await handleOne(userId)}」踢出群聊`
+    return `已将「${await handleOne(userId)}」踢出群聊`
   }
 
   async noactiveList(groupId, times = 1, unit = '月') {
@@ -498,7 +507,7 @@ export class GroupAdminService {
     const botId = Number(this.bot?.uin || this.bot?.self_id)
     const list = members.filter(item => item.last_sent_time < limit && item.role === 'member' && Number(item.user_id) !== botId)
     if (list.length === 0) {
-      throw new Error(`✅ 暂时没有${times}${unit}没发言的人`)
+      throw new Error(`暂时没有${times}${unit}没发言的人`)
     }
     return list
   }
@@ -514,7 +523,7 @@ export class GroupAdminService {
     ])
     const pages = lodash.chunk(msg, 30)
     if (page > pages.length) {
-      throw new Error('❎ 页数超过最大值')
+      throw new Error('页数超过最大值')
     }
     const pageMsg = pages[page - 1]
     pageMsg.unshift(`当前为第${page}页，共${pages.length}页，本页共${pageMsg.length}人，总共${msg.length}人`)
@@ -535,7 +544,7 @@ export class GroupAdminService {
     const botId = Number(this.bot?.uin || this.bot?.self_id)
     const list = members.filter(item => item.join_time === item.last_sent_time && item.role === 'member' && Number(item.user_id) !== botId)
     if (list.length === 0) {
-      throw new Error('✅ 本群暂无从未发言的人')
+      throw new Error('本群暂无从未发言的人')
     }
     return list
   }

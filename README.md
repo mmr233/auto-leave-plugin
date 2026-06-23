@@ -64,6 +64,19 @@ cd auto-leave-plugin && pnpm install
 | `#确认加群 群号` | 同意待审核邀请，也可引用通知消息发送 | 主人、通知用户、审核群管理、邀请者 |
 | `#拒绝加群 群号` | 拒绝待审核邀请，也可引用通知消息发送 | 主人、通知用户、审核群管理、邀请者 |
 
+### 群管命令
+群管模块默认关闭，可在锅巴 `群管配置` 中开启。
+
+| 指令 | 说明 | 权限 |
+|------|------|------|
+| `#禁言 @用户 5分钟` | 禁言群成员 | 群管理 |
+| `#踢 @用户` | 踢出群成员 | 群管理 |
+| `#踢黑 @用户` | 踢出并写入自动退群用户黑名单，仅白名单群聊可用 | 群管理 |
+| `#新增模糊禁违禁词 内容` | 添加群级违禁词 | 群管理 |
+| `#发起投票禁言 @用户` | 发起群投票 | 群成员 |
+| `#开启验证` | 开启本群入群验证 | 群管理 |
+| `#开启加群通知` | 开启本群加群申请通知 | 群管理 |
+
 ### 插件更新
 | 指令 | 说明 | 权限 |
 |------|------|------|
@@ -94,6 +107,17 @@ cd auto-leave-plugin && pnpm install
 - `inviteManagement.blackGroups`: 邀请黑名单群
 - `inviteManagement.whiteGroups`: 邀请白名单群
 
+### 群管配置
+- `groupAdmin.enabled`: 启用群管模块，默认关闭，避免和其他群管插件冲突
+- `groupAdmin.commandsEnabled`: 启用基础群管命令
+- `groupAdmin.bannedWordsEnabled`: 启用群级违禁词
+- `groupAdmin.voteEnabled`: 启用群投票
+- `groupAdmin.verifyEnabled`: 启用入群验证
+- `groupAdmin.noticeEnabled`: 启用加群申请通知
+- `groupAdmin.announceEnabled`: 启用群公告命令
+- `groupAdmin.scheduledMuteEnabled`: 启用定时禁言任务
+- `groupAdmin.blacklistRequestRejectEnabled`: 启用黑名单用户申请入群时自动拒绝，仅在白名单群聊和黑名单自动踢出开启时生效
+
 ## 功能说明
 
 ### 自动退群触发条件
@@ -111,6 +135,9 @@ cd auto-leave-plugin && pnpm install
 - 普通用户发送违禁词会被禁言/踢出
 - 管理员发送违禁词会收到特殊回复
 - 支持自动踢出黑名单用户
+
+### 群管黑名单说明
+群管不再维护独立用户黑名单。`#踢黑` 和群违禁词的 `踢黑` 处理方式会写入 `T用户黑名单` 使用的同一份 Yunzai 用户黑名单，并且只对白名单群聊开放。黑名单用户入群后的自动踢出仍由白名单群管理功能处理；群管只提供可关闭的申请阶段拒绝能力。
 
 ## 更新日志
 

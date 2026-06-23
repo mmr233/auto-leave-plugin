@@ -4,6 +4,7 @@ import {
   approveGroupRequest,
   getGroup,
   getGroupMemberInfo,
+  getGroupAdminBlacklist,
   kickGroupMember,
   muteGroupMember,
   recallGroupMessage,
@@ -25,6 +26,30 @@ function getConfig() {
 
 function getVerifyConfig() {
   return getConfig().groupAdmin?.groupVerify || {}
+}
+
+function isGroupAdminFeatureEnabled(config, key = '') {
+  const groupAdmin = config.groupAdmin || {}
+  if (groupAdmin.enabled !== true) {
+    return false
+  }
+  return key ? groupAdmin[key] !== false : true
+}
+
+function isWhitelistGroup(groupId) {
+  return Config.getWhitelist().map(item => String(item)).includes(String(groupId))
+}
+
+function isUserBlacklistActive(config) {
+  return !!(
+    config.whitelistManagement?.enabled &&
+    config.whitelistManagement?.enableUserBlacklist &&
+    config.whitelistManagement?.autoKickBlacklistedUsers
+  )
+}
+
+function isUserBlacklisted(userId) {
+  return getGroupAdminBlacklist().includes(Number(userId))
 }
 
 function toArray(value) {
@@ -63,7 +88,11 @@ async function sendVerifyMessage(e, userId, msg) {
 }
 
 export async function startVerifyForUser(e, userId, groupId = e.group_id) {
-  const config = getVerifyConfig()
+  const rootConfig = getConfig()
+  if (!isGroupAdminFeatureEnabled(rootConfig, 'verifyEnabled')) {
+    return false
+  }
+  const config = rootConfig.groupAdmin?.groupVerify || {}
   const group = getGroup(e, groupId)
   if (!group?.is_admin && !group?.is_owner) {
     return false
@@ -134,7 +163,11 @@ export async function passVerify(groupId, userId) {
 }
 
 export async function handleVerifyAnswer(e) {
-  const config = getVerifyConfig()
+  const rootConfig = getConfig()
+  if (!isGroupAdminFeatureEnabled(rootConfig, 'verifyEnabled')) {
+    return false
+  }
+  const config = rootConfig.groupAdmin?.groupVerify || {}
   const key = getVerifyKey(e.group_id, e.user_id)
   const session = verifySessions.get(key)
   if (!session) {
@@ -156,7 +189,7 @@ export async function handleVerifyAnswer(e) {
         await recallGroupMessage(e, e.message_id)
       }
     } catch {}
-    await sendVerifyMessage(e, e.user_id, `\n❎ 验证失败\n你还有「${session.remainTimes}」次机会\n请发送「${session.nums[0]} ${session.operator} ${session.nums[1]}」的运算结果`)
+    await sendVerifyMessage(e, e.user_id, `\n验证失败\n你还有「${session.remainTimes}」次机会\n请发送「${session.nums[0]} ${session.operator} ${session.nums[1]}」的运算结果`)
     return true
   }
 
@@ -169,34 +202,30 @@ export async function handleVerifyAnswer(e) {
 export async function reverifyUser(e, userId) {
   const info = await getGroupMemberInfo(e, e.group_id, userId)
   if (!info) {
-    throw new Error('❎ 目标群成员不存在')
+    throw new Error('目标群成员不存在')
   }
   if (info.role === 'owner' || info.role === 'admin') {
-    throw new Error('❎ 该命令对群主或管理员无效')
+    throw new Error('该命令对群主或管理员无效')
   }
   if (getMasterIds().has(Number(userId))) {
-    throw new Error('❎ 该命令对机器人主人无效')
+    throw new Error('该命令对机器人主人无效')
   }
   if (hasVerifySession(e.group_id, userId)) {
-    throw new Error('❎ 目标群成员处于验证状态')
+    throw new Error('目标群成员处于验证状态')
   }
   await startVerifyForUser(e, userId, e.group_id)
 }
 
 export async function handleGroupIncreaseForAdmin(e) {
   const config = getConfig()
+  if (!isGroupAdminFeatureEnabled(config, 'verifyEnabled')) {
+    return false
+  }
   const verifyConfig = config.groupAdmin?.groupVerify || {}
-  const blackUsers = config.groupAdmin?.blackQQ || []
   const botId = e.bot?.uin || e.self_id
 
   if (Number(e.user_id) === Number(botId)) {
     return false
-  }
-
-  if (blackUsers.includes(Number(e.user_id))) {
-    await kickGroupMember(e, e.group_id, e.user_id, true)
-    await e.group?.sendMsg?.(`⚠ 检测到黑名单${e.user_id}入群，已自动踢出`)
-    return true
   }
 
   if (!(verifyConfig.openGroup || []).includes(Number(e.group_id))) {
@@ -226,6 +255,9 @@ export async function handleGroupDecreaseForAdmin(e) {
 
 export async function handleGroupBanForAdmin(e) {
   const config = getConfig()
+  if (!isGroupAdminFeatureEnabled(config, 'commandsEnabled')) {
+    return false
+  }
   const isWhiteUser = (config.groupAdmin?.whiteQQ || []).includes(Number(e.user_id))
   const botId = e.bot?.uin || global.Bot?.uin || global.Bot?.self_id
   const isMasterOperator = getMasterIds(config).has(Number(e.operator_id)) || Number(e.operator_id) === Number(botId)
@@ -239,14 +271,24 @@ export async function handleGroupBanForAdmin(e) {
 
 export async function handleGroupRequestForAdmin(e) {
   const config = getConfig()
+  if (!isGroupAdminFeatureEnabled(config)) {
+    return false
+  }
   if (e.request_type !== 'group' || e.sub_type !== 'add') {
     return false
   }
 
-  const blackUsers = config.groupAdmin?.blackQQ || []
-  if (blackUsers.includes(Number(e.user_id))) {
+  const shouldRejectBlacklistedUser = isGroupAdminFeatureEnabled(config, 'blacklistRequestRejectEnabled') &&
+    isUserBlacklistActive(config) &&
+    isWhitelistGroup(e.group_id) &&
+    isUserBlacklisted(e.user_id)
+  if (shouldRejectBlacklistedUser) {
     await approveGroupRequest(e, e, false, '黑名单用户禁止入群')
     return true
+  }
+
+  if (!isGroupAdminFeatureEnabled(config, 'noticeEnabled')) {
+    return false
   }
 
   const notifyGroups = config.groupAdmin?.groupAddNotice?.openGroup || []
@@ -255,7 +297,7 @@ export async function handleGroupRequestForAdmin(e) {
   }
 
   const msg = [
-    `${config.groupAdmin?.groupAddNotice?.msg || '有一个加群通知，管理员快去看看吧~'}\n`,
+    `${config.groupAdmin?.groupAddNotice?.msg || '收到加群申请'}\n`,
     segment.image(`https://q1.qlogo.cn/g?b=qq&s=100&nk=${e.user_id}`),
     `QQ号：${e.user_id}\n`,
     `昵称：${e.nickname || '未知'}\n`,
@@ -273,7 +315,10 @@ export function initGroupAdminRuntime() {
     return true
   }
   runtimeInited = true
-  GroupAdminService.loadMuteTasks()
+  const config = getConfig()
+  if (isGroupAdminFeatureEnabled(config, 'scheduledMuteEnabled')) {
+    GroupAdminService.loadMuteTasks()
+  }
 
   if (!(Bot && Bot.on)) {
     return false

@@ -17,8 +17,16 @@
     "autoKickBlacklistedUsers": true
   },
   "groupAdmin": {
+    "enabled": false,
+    "commandsEnabled": true,
+    "bannedWordsEnabled": true,
+    "voteEnabled": true,
+    "verifyEnabled": true,
+    "noticeEnabled": true,
+    "announceEnabled": true,
+    "scheduledMuteEnabled": true,
+    "blacklistRequestRejectEnabled": true,
     "whiteQQ": [],
-    "blackQQ": [],
     "noBan": false,
     "voteBan": true,
     "voteKick": false,
@@ -44,7 +52,7 @@
     },
     "groupAddNotice": {
       "openGroup": [],
-      "msg": "有一个加群通知，管理员快去看看吧~"
+      "msg": "收到加群申请"
     },
     "title": {
       "selfApply": true
@@ -60,7 +68,7 @@
     "muteWarning": "检测到违禁词，你已被禁言 {duration} 分钟。请注意言辞，再次违规将延长禁言时间。",
     "kickWarning": "你因多次发送违禁词被踢出群聊并加入黑名单。如有异议请联系管理员。",
     "blacklistUserKick": "检测到黑名单用户，已自动踢出。",
-    "adminReply": "啊哈哈，我也是拿你没办法呢~"
+    "adminReply": "管理员触发违禁词"
   },
   "inviteManagement": {
     "enabled": true,

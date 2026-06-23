@@ -5,6 +5,71 @@ export const groupAdminConfigSchema = [
   },
   {
     component: 'Divider',
+    label: '功能开关',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'groupAdmin.enabled',
+    label: '启用群管模块',
+    bottomHelpMessage: '关闭后群管命令、群违禁词、投票、入群验证、申请通知和群公告均不处理',
+    component: 'Switch',
+    defaultValue: false
+  },
+  {
+    field: 'groupAdmin.commandsEnabled',
+    label: '启用基础群管命令',
+    bottomHelpMessage: '包含禁言、踢人、全员禁言、群管理、头衔、精华、清理和群内通知等命令',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.scheduledMuteEnabled',
+    label: '启用定时禁言',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.bannedWordsEnabled',
+    label: '启用群违禁词',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.voteEnabled',
+    label: '启用群投票',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.verifyEnabled',
+    label: '启用入群验证',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.noticeEnabled',
+    label: '启用加群申请通知',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.blacklistRequestRejectEnabled',
+    label: '启用黑名单申请拒绝',
+    bottomHelpMessage: '使用自动退群用户黑名单，仅在白名单群聊和黑名单自动踢出开启时生效',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.announceEnabled',
+    label: '启用群公告命令',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    component: 'Divider',
     label: '用户名单',
     componentProps: {
       orientation: 'left',
@@ -18,16 +83,6 @@ export const groupAdminConfigSchema = [
     component: 'GSelectFriend',
     componentProps: {
       placeholder: '点击选择白名单用户',
-      multiple: true
-    }
-  },
-  {
-    field: 'groupAdmin.blackQQ',
-    label: '群管黑名单用户',
-    bottomHelpMessage: '黑名单用户进群后会自动踢出，申请入群时会自动拒绝',
-    component: 'GSelectFriend',
-    componentProps: {
-      placeholder: '点击选择黑名单用户',
       multiple: true
     }
   },

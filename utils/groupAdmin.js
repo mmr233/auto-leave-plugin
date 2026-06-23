@@ -1,4 +1,5 @@
 import { Config } from '../components/config.js'
+import { addUserToBlacklist, getUserBlacklist, removeUserFromBlacklist } from './yunzaiConfig.js'
 
 export const TIME_UNIT = {
   毫秒: 0.001,
@@ -276,9 +277,9 @@ export async function checkPermission(e, permission = 'all', role = 'all', {
   if (role !== 'all') {
     const botRole = await getBotRole(e, e.group_id || groupObj?.group_id, groupObj)
     if (role === 'owner' && botRole !== 'owner') {
-      msg = '❎ Bot权限不足，需要群主权限'
+      msg = 'Bot权限不足，需要群主权限'
     } else if (role === 'admin' && botRole !== 'owner' && botRole !== 'admin') {
-      msg = '❎ Bot权限不足，需要管理员权限'
+      msg = 'Bot权限不足，需要管理员权限'
     }
   }
 
@@ -286,11 +287,11 @@ export async function checkPermission(e, permission = 'all', role = 'all', {
     const info = e.member ? normalizeMemberInfo(e.member) : await getGroupMemberInfo(e, e.group_id || groupObj?.group_id, e.user_id, groupObj)
     const userRole = info?.role || 'member'
     if (permission === 'master') {
-      msg = '❎ 该命令仅限主人可用'
+      msg = '该命令仅限主人可用'
     } else if (permission === 'owner' && userRole !== 'owner') {
-      msg = '❎ 该命令仅限群主可用'
+      msg = '该命令仅限群主可用'
     } else if (permission === 'admin' && userRole !== 'owner' && userRole !== 'admin') {
-      msg = '❎ 该命令仅限管理可用'
+      msg = '该命令仅限管理可用'
     }
   }
 
@@ -681,27 +682,13 @@ export async function sendForwardMsg(e, messages, {
 }
 
 export function getGroupAdminBlacklist() {
-  const config = Config.loadConfig()
-  return [...new Set((config.groupAdmin?.blackQQ || []).map(item => Number(item)).filter(item => !Number.isNaN(item)))]
+  return [...new Set((getUserBlacklist() || []).map(item => Number(item)).filter(item => !Number.isNaN(item)))]
 }
 
-export function addGroupAdminBlacklist(userId) {
-  const config = Config.loadConfig()
-  const list = getGroupAdminBlacklist()
-  const targetId = Number(userId)
-  if (!list.includes(targetId)) {
-    list.push(targetId)
-    config.groupAdmin = config.groupAdmin || {}
-    config.groupAdmin.blackQQ = list
-    return Config.saveConfig(config)
-  }
-  return true
+export function addGroupAdminBlacklist(userId, reason = '群管踢黑') {
+  return addUserToBlacklist(userId, reason)
 }
 
 export function removeGroupAdminBlacklist(userId) {
-  const list = getGroupAdminBlacklist().filter(item => item !== Number(userId))
-  const config = Config.loadConfig()
-  config.groupAdmin = config.groupAdmin || {}
-  config.groupAdmin.blackQQ = list
-  return Config.saveConfig(config)
+  return removeUserFromBlacklist(userId)
 }

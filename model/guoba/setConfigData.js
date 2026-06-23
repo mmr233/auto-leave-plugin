@@ -87,12 +87,6 @@ export async function setConfigData(data, { Result }) {
         )]
       }
 
-      if (Array.isArray(config.groupAdmin.blackQQ)) {
-        config.groupAdmin.blackQQ = [...new Set(
-          config.groupAdmin.blackQQ.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-        )]
-      }
-
       if (Array.isArray(config.groupAdmin.groupVerify?.openGroup)) {
         config.groupAdmin.groupVerify.openGroup = [...new Set(
           config.groupAdmin.groupVerify.openGroup.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)

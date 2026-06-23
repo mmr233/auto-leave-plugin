@@ -23,7 +23,6 @@ export async function getConfigData() {
     groupAdmin: {
       ...(config.groupAdmin || {}),
       whiteQQ: (config.groupAdmin?.whiteQQ || []).map(String),
-      blackQQ: (config.groupAdmin?.blackQQ || []).map(String),
       groupVerify: {
         ...(config.groupAdmin?.groupVerify || {}),
         openGroup: (config.groupAdmin?.groupVerify?.openGroup || []).map(String),

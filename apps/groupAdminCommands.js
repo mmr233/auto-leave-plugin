@@ -65,6 +65,32 @@ function parseMuteCommand(e) {
   }
 }
 
+function isGroupAdminFeatureEnabled(key = '', config = getGroupConfig()) {
+  const groupAdmin = config.groupAdmin || {}
+  if (groupAdmin.enabled !== true) {
+    return false
+  }
+  return key ? groupAdmin[key] !== false : true
+}
+
+function isWhitelistGroup(groupId) {
+  return Config.getWhitelist().map(item => String(item)).includes(String(groupId))
+}
+
+function getBlacklistScopeStatus(e, config = getGroupConfig()) {
+  if (!isWhitelistGroup(e.group_id)) {
+    return { ok: false, message: '踢黑仅对白名单群聊开放' }
+  }
+  if (!config.whitelistManagement?.enabled || !config.whitelistManagement?.enableUserBlacklist) {
+    return { ok: false, message: '用户黑名单功能未开启' }
+  }
+  return { ok: true, message: '' }
+}
+
+function canUseUserBlacklist(e, config = getGroupConfig()) {
+  return getBlacklistScopeStatus(e, config).ok
+}
+
 export class GroupAdminCommands extends plugin {
   constructor() {
     super({
@@ -96,6 +122,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async muteMember(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const { target, time, unit } = parseMuteCommand(e)
     try {
@@ -108,6 +135,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async unmuteMember(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     let qq = extractAtIds(e)
     if (qq.length < 2) {
@@ -123,14 +151,16 @@ export class GroupAdminCommands extends plugin {
   }
 
   async muteAll(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const enable = /全(体|员)禁言/.test(getMessageText(e))
     const ok = await setGroupWholeBan(e, e.group_id, enable)
-    await e.reply(ok ? `✅ 已${enable ? '开启' : '关闭'}全体禁言` : '❎ 未知错误', true)
+    await e.reply(ok ? `已${enable ? '开启' : '关闭'}全体禁言` : '未知错误', true)
     return true
   }
 
   async kickMember(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     let qq = extractAtIds(e)
     if (qq.length < 2) {
@@ -138,13 +168,21 @@ export class GroupAdminCommands extends plugin {
     }
 
     try {
+      const config = getGroupConfig()
       const block = /黑/.test(getMessageText(e))
+      if (block) {
+        const scope = getBlacklistScopeStatus(e, config)
+        if (!scope.ok) {
+          await e.reply(scope.message, true)
+          return true
+        }
+      }
       const res = await getService(e).kickMember(e.group_id, qq, e.user_id, block, getGroupConfig())
       await e.reply(res)
       if (block) {
         const ids = Array.isArray(qq) ? qq : [qq]
         for (const id of ids) {
-          addGroupAdminBlacklist(id)
+          addGroupAdminBlacklist(id, '群管踢黑')
         }
       }
     } catch (err) {
@@ -154,13 +192,14 @@ export class GroupAdminCommands extends plugin {
   }
 
   async setAdmin(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'master', 'owner')) return true
     let qq = extractAtIds(e)
     if (qq.length < 1) {
       qq = [getMessageText(e).replace(/#|(设置|取消)管理/g, '').trim()]
     }
     if (!qq || !/\d{5,}/.test(String(qq[0] || ''))) {
-      await e.reply('❎ 请输入正确的QQ号')
+      await e.reply('请输入正确的QQ号')
       return true
     }
 
@@ -169,7 +208,7 @@ export class GroupAdminCommands extends plugin {
     for (const id of qq) {
       const ok = await setGroupAdminRole(e, e.group_id, id, add)
       if (!ok) {
-        await e.reply(`❎ 设置 ${id} 失败`)
+        await e.reply(`设置 ${id} 失败`)
         return true
       }
       let info = null
@@ -185,24 +224,26 @@ export class GroupAdminCommands extends plugin {
       const data = info?.data || info?.response
       names.push(data?.card || data?.nickname || String(id))
     }
-    await e.reply(add ? `✅ 已经把「${names.join('，')}」设置为管理啦！！` : `✅ 已取消「${names.join('，')}」的管理啦！！`)
+    await e.reply(add ? `已将「${names.join('，')}」设置为管理` : `已取消「${names.join('，')}」的管理`)
     return true
   }
 
   async setUserTitle(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'master', 'owner')) return true
     const qq = extractAtIds(e)[0]
     if (!qq) {
-      await e.reply('请艾特要修改的人哦~')
+      await e.reply('请艾特要修改的人')
       return true
     }
     const text = getMessageText(e).replace(/#?(修改|设置)头衔/g, '').trim()
     const ok = await setGroupSpecialTitle(e, e.group_id, qq, text)
-    await e.reply(ok ? `✅ 已将头衔设置为「${text}」` : '❎ 未知错误')
+    await e.reply(ok ? `已将头衔设置为「${text}」` : '未知错误')
     return true
   }
 
   async applyOwnTitle(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'all', 'owner')) return true
     const title = getMessageText(e).replace(/#(申请|我要)头衔/g, '').trim()
     const filterMode = GroupBannedWords.getTitleFilterModeChange(e.group_id)
@@ -211,17 +252,18 @@ export class GroupAdminCommands extends plugin {
     if (!e.isMaster && bannedWords.length > 0) {
       const reg = new RegExp(bannedWords.map(escapeRegExp).join('|'))
       if ((filterMode ? reg.test(title) : bannedWords.includes(title))) {
-        await e.reply('❎ 包含违禁词', true)
+        await e.reply('包含违禁词', true)
         return true
       }
     }
 
     const ok = await setGroupSpecialTitle(e, e.group_id, e.user_id, title)
-    await e.reply(ok ? `✅ 已将你的头衔更换为「${title}」` : '❎ 未知错误', true)
+    await e.reply(ok ? `已将你的头衔更换为「${title}」` : '未知错误', true)
     return true
   }
 
   async muteList(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     try {
       const res = await getService(e).getMuteList(e.group_id, true)
       await withForwardReply(e, res, '禁言列表')
@@ -232,10 +274,11 @@ export class GroupAdminCommands extends plugin {
   }
 
   async relieveAllMute(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     try {
       await getService(e).releaseAllMute(e.group_id)
-      await e.reply('✅ 已将全部禁言解除')
+      await e.reply('已将全部禁言解除')
     } catch (err) {
       await e.reply(err.message || String(err))
     }
@@ -243,6 +286,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async noactive(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const role = getMessageText(e).includes('查看') ? 'all' : 'admin'
     if (!await checkPermission(e, 'admin', role)) return true
     const regRet = noactiveReg.exec(getMessageText(e))
@@ -256,7 +300,7 @@ export class GroupAdminCommands extends plugin {
           list
         }
         this.setContext('confirmCleanup')
-        await e.reply([`⚠ 本次共需清理「${list.length}」人\n`, '请发送："#确认清理" 开始清理'])
+        await e.reply([`本次共需清理「${list.length}」人\n`, '请发送："#确认清理" 开始清理'])
         return true
       }
       const page = translateChinaNum(regRet[5] || 1)
@@ -269,6 +313,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async confirmCleanup(ctx) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const e = this.e
     if (/^#?确认清理$/.test(getMessageText(e))) {
       try {
@@ -281,7 +326,7 @@ export class GroupAdminCommands extends plugin {
           )
           await withForwardReply(e, msg, '清理结果')
         } else if (ctx.groupAdminCleanupContext?.type === 'neverSpeak') {
-          await e.reply('⚠ 开始清理，这可能需要一点时间')
+          await e.reply('开始清理，这可能需要一点时间')
           const msg = await getService(e).batchKickMember(e.group_id, ctx.groupAdminCleanupContext.list.map(item => item.user_id))
           await withForwardReply(e, msg, '清理结果')
         }
@@ -289,13 +334,14 @@ export class GroupAdminCommands extends plugin {
         await e.reply(err.message || String(err))
       }
     } else {
-      await e.reply('❎ 已取消')
+      await e.reply('已取消')
     }
     this.finish('confirmCleanup')
     return true
   }
 
   async neverSpeak(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const role = getMessageText(e).includes('查看') ? 'all' : 'admin'
     if (!await checkPermission(e, 'admin', role)) return true
     try {
@@ -306,7 +352,7 @@ export class GroupAdminCommands extends plugin {
           type: 'neverSpeak',
           list
         }
-        await e.reply([`⚠ 本次共需清理「${list.length}」人，防止误触发\n`, '请发送："#确认清理" 开始清理'])
+        await e.reply([`本次共需清理「${list.length}」人，防止误触发\n`, '请发送："#确认清理" 开始清理'])
       } else {
         const page = translateChinaNum(getMessageText(e).match(new RegExp(Numreg))?.[0] || 1)
         const res = await getService(e).getNeverSpeakInfo(e.group_id, page, list)
@@ -319,6 +365,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async rankingList(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const num = translateChinaNum(getMessageText(e).match(new RegExp(Numreg))?.[0] || 10)
     const msg = await getService(e).inactiveRanking(e.group_id, num)
     await withForwardReply(e, msg, '不活跃排行')
@@ -326,6 +373,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async recentlyJoined(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const num = translateChinaNum(getMessageText(e).match(new RegExp(Numreg))?.[0] || 10)
     const msg = await getService(e).getRecentlyJoined(e.group_id, num)
     await withForwardReply(e, msg, '最近入群')
@@ -333,6 +381,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async sendNotice(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const message = Array.isArray(e.message) ? [...e.message] : []
     if (message[0]?.text) {
@@ -342,7 +391,7 @@ export class GroupAdminCommands extends plugin {
       }
     }
     if (message.length === 0) {
-      await e.reply('❎ 通知不能为空')
+      await e.reply('通知不能为空')
       return true
     }
     message.unshift(segment.at('all'))
@@ -351,6 +400,7 @@ export class GroupAdminCommands extends plugin {
   }
 
   async timeMute(e) {
+    if (!isGroupAdminFeatureEnabled('scheduledMuteEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const text = getMessageText(e)
     const type = /禁言/.test(text)
@@ -377,7 +427,7 @@ export class GroupAdminCommands extends plugin {
       }
       const cron = regRet[3] && regRet[5] ? `0 ${regRet[5]} ${regRet[3]} * * ?` : regRet[2]
       const ok = await getService(e).setMuteTask(e.group_id, cron.trim(), type, e.self_id ?? getService(e).bot?.uin)
-      await e.reply(ok ? '✅设置定时禁言成功，可发【#定时禁言任务】查看' : `❎ 该群定时${type ? '禁言' : '解禁'}已存在不可重复设置`)
+      await e.reply(ok ? '设置定时禁言成功，可发【#定时禁言任务】查看' : `该群定时${type ? '禁言' : '解禁'}已存在不可重复设置`)
     } catch (err) {
       await e.reply(err.message || String(err))
     }
@@ -385,17 +435,18 @@ export class GroupAdminCommands extends plugin {
   }
 
   async handleGroupAdd(e) {
+    if (!isGroupAdminFeatureEnabled('noticeEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
     const type = /开启/.test(getMessageText(e)) ? 'add' : 'del'
     const openGroups = config.groupAdmin?.groupAddNotice?.openGroup || []
     const isOpen = openGroups.includes(Number(e.group_id))
     if (isOpen && type === 'add') {
-      await e.reply('❎ 本群加群申请通知已处于开启状态')
+      await e.reply('本群加群申请通知已处于开启状态')
       return true
     }
     if (!isOpen && type === 'del') {
-      await e.reply('❎ 本群暂未开启加群申请通知')
+      await e.reply('本群暂未开启加群申请通知')
       return true
     }
     const nextOpenGroups = type === 'add'
@@ -403,11 +454,12 @@ export class GroupAdminCommands extends plugin {
       : openGroups.filter(item => Number(item) !== Number(e.group_id))
     config.groupAdmin.groupAddNotice.openGroup = nextOpenGroups
     Config.saveConfig(config)
-    await e.reply(`✅ 已${type === 'add' ? '开启' : '关闭'}「${e.group_id}」的加群申请通知`)
+    await e.reply(`已${type === 'add' ? '开启' : '关闭'}「${e.group_id}」的加群申请通知`)
     return true
   }
 
   async essenceMessage(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const source = await getQuotedMessage(e)
     if (!source) {
@@ -419,22 +471,23 @@ export class GroupAdminCommands extends plugin {
     const ok = isAdd === '加' || isAdd === '设'
       ? await setGroupEssenceMessage(e, messageId)
       : await deleteGroupEssenceMessage(e, messageId)
-    await e.reply(ok ? `✅ 已${isAdd === '移' ? '移出' : '设置'}精华消息` : `${isAdd}精失败`)
+    await e.reply(ok ? `已${isAdd === '移' ? '移出' : '设置'}精华消息` : `${isAdd}精失败`)
     return true
   }
 
   async autistic(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     const group = e.group
     if (!group?.is_admin && !group?.is_owner) return true
     if (e.isMaster || (e.member?.is_admin && !group?.is_owner)) {
-      await e.reply('别自闭啦~~', true)
+      await e.reply('已取消操作', true)
       return true
     }
     const regRet = autisticReg.exec(getMessageText(e))
     const tabooTime = translateChinaNum(regRet?.[2] || 5)
     const unit = TIME_UNIT[String(regRet?.[3] || '分').toUpperCase()] ?? TIME_UNIT[regRet?.[3] || '分'] ?? 60
     await muteGroupMember(e, e.group_id, e.user_id, tabooTime * unit)
-    await e.reply('那我就不手下留情了~', true)
+    await e.reply('已禁言', true)
     return true
   }
 }
@@ -469,6 +522,9 @@ export class GroupBannedWordsCommands extends plugin {
 
   async accept(e) {
     const config = getGroupConfig()
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled', config)) {
+      return false
+    }
     const isWhite = (config.groupAdmin?.whiteQQ || []).includes(Number(e.user_id))
     if (!e.message || e.isMaster || e.member?.is_owner || e.member?.is_admin || isWhite) {
       return false
@@ -504,8 +560,11 @@ export class GroupBannedWordsCommands extends plugin {
         await recallGroupMessage(e, e.message_id)
       },
       6: async () => {
-        addGroupAdminBlacklist(e.user_id)
-        await kickGroupMember(e, e.group_id, e.user_id, true)
+        const useBlacklist = canUseUserBlacklist(e, config)
+        if (useBlacklist) {
+          addGroupAdminBlacklist(e.user_id, '群违禁词踢黑')
+        }
+        await kickGroupMember(e, e.group_id, e.user_id, useBlacklist)
       }
     }
 
@@ -515,7 +574,7 @@ export class GroupBannedWordsCommands extends plugin {
       3: '撤回消息',
       4: '踢出群聊并撤回消息',
       5: `禁言${muteTime}秒并撤回消息`,
-      6: '踢出群聊并加入黑名单'
+      6: canUseUserBlacklist(e, config) ? '踢出群聊并加入黑名单' : '踢出群聊'
     }
 
     if (actions[data.penaltyType]) {
@@ -535,6 +594,7 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async help(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     const msg = [
       '该命令匹配正则：',
       '^#?新增(模糊|精确|正则1|正则2|正则)?(踢|禁|撤|踢撤|禁撤|踢黑)?违禁词',
@@ -553,11 +613,19 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async add(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const word = this.trimAlias(this.message)
     let [, matchType, penaltyType, words] = word.match(/#?新增(模糊|精确|正则1|正则2|正则)?(踢|禁|撤|踢撤|禁撤|踢黑)?违禁词(.*)/) || []
     if (!words) {
       return this.help(e)
+    }
+    if (penaltyType === '踢黑') {
+      const scope = getBlacklistScopeStatus(e)
+      if (!scope.ok) {
+        await e.reply(scope.message, true)
+        return true
+      }
     }
 
     let storedWord = words.trim()
@@ -568,7 +636,7 @@ export class GroupBannedWordsCommands extends plugin {
         }
         new RegExp(storedWord)
       } catch (err) {
-        await e.reply('❎ 正则表达式错误')
+        await e.reply('正则表达式错误')
         return true
       }
       matchType = '正则'
@@ -577,7 +645,7 @@ export class GroupBannedWordsCommands extends plugin {
     try {
       const res = GroupBannedWords.addBannedWord(e.group_id, storedWord, matchType || '精确', penaltyType || '禁', e.user_id)
       await e.reply([
-        '✅ 成功添加屏蔽词\n',
+        '成功添加屏蔽词\n',
         '屏蔽词：',
         res.words,
         `\n匹配模式：${res.matchType}\n`,
@@ -590,6 +658,7 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async deleteWord(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const word = this.trimAlias(this.message).replace(/#?删除违禁词/, '').trim()
     if (!word) {
@@ -598,7 +667,7 @@ export class GroupBannedWordsCommands extends plugin {
     }
     try {
       const msg = GroupBannedWords.deleteBannedWord(e.group_id, word)
-      await e.reply(['✅ 成功删除：', msg])
+      await e.reply(['成功删除：', msg])
     } catch (err) {
       await e.reply(err.message || String(err))
     }
@@ -606,6 +675,7 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async query(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     const word = this.trimAlias(this.message).replace(/#?查看违禁词/, '').trim()
     if (!word) {
       await e.reply('需要查询的屏蔽词为空')
@@ -614,7 +684,7 @@ export class GroupBannedWordsCommands extends plugin {
     try {
       const { words, matchType, penaltyType, addedBy, date } = GroupBannedWords.queryBannedWord(e.group_id, word)
       await e.reply([
-        '✅ 查询屏蔽词\n',
+        '查询屏蔽词\n',
         '屏蔽词：',
         words,
         `\n匹配模式：${matchType}\n`,
@@ -629,9 +699,10 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async list(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     const bannedWords = GroupBannedWords.initTextArr(e.group_id)
     if (!bannedWords || bannedWords.size === 0) {
-      await e.reply('❎ 没有违禁词')
+      await e.reply('没有违禁词')
       return true
     }
     const isRaw = /(原始)|(raw)/.test(getMessageText(e))
@@ -651,14 +722,16 @@ export class GroupBannedWordsCommands extends plugin {
   }
 
   async muteTime(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const time = Number(getMessageText(e).match(/\d+/)?.[0] || 300)
     GroupBannedWords.setMuteTime(e.group_id, time)
-    await e.reply(`✅ 群${e.group_id}违禁词禁言时间已设置为${time}s`)
+    await e.reply(`群${e.group_id}违禁词禁言时间已设置为${time}s`)
     return true
   }
 
   async prohibitedTitle(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     const shieldingWords = GroupBannedWords.getTitleBannedWords(e.group_id)
     if (/查看/.test(getMessageText(e))) {
       await e.reply(`现有的头衔屏蔽词如下：${shieldingWords.join('\n')}`)
@@ -683,27 +756,28 @@ export class GroupBannedWordsCommands extends plugin {
     if (isAddition) {
       if (newWords.length > 0) {
         GroupBannedWords.addTitleBannedWords(e.group_id, [...new Set(newWords)])
-        await e.reply(`✅ 成功添加：${[...new Set(newWords)].join(',')}`)
+        await e.reply(`成功添加：${[...new Set(newWords)].join(',')}`)
       }
       if (existingWords.length > 0) {
-        await e.reply(`❎ 以下词已存在：${[...new Set(existingWords)].join(',')}`)
+        await e.reply(`以下词已存在：${[...new Set(existingWords)].join(',')}`)
       }
     } else {
       if (existingWords.length > 0) {
         GroupBannedWords.deleteTitleBannedWords(e.group_id, [...new Set(existingWords)])
-        await e.reply(`✅ 成功删除：${[...new Set(existingWords)].join(',')}`)
+        await e.reply(`成功删除：${[...new Set(existingWords)].join(',')}`)
       }
       if (newWords.length > 0) {
-        await e.reply(`❎ 以下词未在屏蔽词中：${[...new Set(newWords)].join(',')}`)
+        await e.reply(`以下词未在屏蔽词中：${[...new Set(newWords)].join(',')}`)
       }
     }
     return true
   }
 
   async prohibitedTitlePattern(e) {
+    if (!isGroupAdminFeatureEnabled('bannedWordsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const res = GroupBannedWords.setTitleFilterModeChange(e.group_id)
-    await e.reply(`✅ 已修改匹配模式为${res ? '精确' : '模糊'}匹配`)
+    await e.reply(`已修改匹配模式为${res ? '精确' : '模糊'}匹配`)
     return true
   }
 }
@@ -726,6 +800,7 @@ export class GroupVoteCommands extends plugin {
   }
 
   async switchVote(e) {
+    if (!isGroupAdminFeatureEnabled('voteEnabled')) return false
     if (!await checkPermission(e, 'master')) return true
     const config = getGroupConfig()
     const enable = /启用/.test(getMessageText(e))
@@ -734,20 +809,21 @@ export class GroupVoteCommands extends plugin {
     const key = isBan ? 'voteBan' : 'voteKick'
     const open = config.groupAdmin[key]
     if (open && enable) {
-      await e.reply(`❎ 投票${name}功能已处于启用状态`)
+      await e.reply(`投票${name}功能已处于启用状态`)
       return true
     }
     if (!open && !enable) {
-      await e.reply(`❎ 投票${name}功能已处于禁用状态`)
+      await e.reply(`投票${name}功能已处于禁用状态`)
       return true
     }
     config.groupAdmin[key] = enable
     Config.saveConfig(config)
-    await e.reply(`✅ 已${enable ? '启用' : '禁用'}投票${name}功能`)
+    await e.reply(`已${enable ? '启用' : '禁用'}投票${name}功能`)
     return true
   }
 
   async settings(e) {
+    if (!isGroupAdminFeatureEnabled('voteEnabled')) return false
     if (!await checkPermission(e, 'master')) return true
     const config = getGroupConfig()
     const regRet = /^#?投票设置(超时时间|最低票数|禁言时间)?(\d*)$/.exec(getMessageText(e))
@@ -759,20 +835,21 @@ export class GroupVoteCommands extends plugin {
     }
     const key = text === '超时时间' ? 'outTime' : text === '最低票数' ? 'minNum' : 'banTime'
     if (config.groupAdmin[key] === value) {
-      await e.reply(`❎ 当前${text}已经是${value}了`)
+      await e.reply(`当前${text}已经是${value}了`)
       return true
     }
     config.groupAdmin[key] = value
     Config.saveConfig(config)
-    await e.reply(`✅ 已把${text}设置成${value}了`)
+    await e.reply(`已把${text}设置成${value}了`)
     return true
   }
 
   async initiate(e) {
+    if (!isGroupAdminFeatureEnabled('voteEnabled')) return false
     if (!await checkPermission(e, 'all', 'admin')) return true
     const config = getGroupConfig()
     const isBan = /禁言/.test(getMessageText(e))
-    const disabledMsg = isBan ? '❎ 该功能已被禁用，请发送 #启用投票禁言 来启用该功能。' : '❎ 该功能已被禁用，请发送 #启用投票踢人 来启用该功能。'
+    const disabledMsg = isBan ? '该功能已被禁用，请发送 #启用投票禁言 来启用该功能。' : '该功能已被禁用，请发送 #启用投票踢人 来启用该功能。'
     if ((isBan && !config.groupAdmin.voteBan) || (!isBan && !config.groupAdmin.voteKick)) {
       await e.reply(disabledMsg, true)
       return true
@@ -781,15 +858,15 @@ export class GroupVoteCommands extends plugin {
     targetQQ = normalizeId(targetQQ)
     const key = `${e.group_id}:${targetQQ}`
     if (Number(e.user_id) === Number(targetQQ)) {
-      await e.reply('❎ 您不能对自己进行投票')
+      await e.reply('您不能对自己进行投票')
       return true
     }
     if (!targetQQ) {
-      await e.reply('❎ 请艾特或输入被投票人的QQ')
+      await e.reply('请艾特或输入被投票人的QQ')
       return true
     }
     if (this.vote[key]) {
-      await e.reply('❎ 已有相同投票，请勿重复发起')
+      await e.reply('已有相同投票，请勿重复发起')
       return true
     }
     let info = null
@@ -805,15 +882,15 @@ export class GroupVoteCommands extends plugin {
     const memberInfo = info?.data || info?.response
     const botRole = e.group?.is_owner ? 'owner' : e.group?.is_admin ? 'admin' : 'member'
     if (!memberInfo) {
-      await e.reply('❎ 该群没有这个人')
+      await e.reply('该群没有这个人')
       return true
     }
     if (memberInfo.role === 'owner') {
-      await e.reply('❎ 权限不足，该命令对群主无效')
+      await e.reply('权限不足，该命令对群主无效')
       return true
     }
     if (memberInfo.role === 'admin' && (!config.groupAdmin.voteAdmin || botRole !== 'owner')) {
-      await e.reply('❎ 该命令对管理员无效或Bot权限不足，需要群主权限')
+      await e.reply('该命令对管理员无效或Bot权限不足，需要群主权限')
       return true
     }
 
@@ -867,6 +944,7 @@ export class GroupVoteCommands extends plugin {
   }
 
   async follow(e) {
+    if (!isGroupAdminFeatureEnabled('voteEnabled')) return false
     if (!await checkPermission(e, 'all', 'admin')) return true
     const config = getGroupConfig()
     const support = /支持/.test(getMessageText(e))
@@ -874,15 +952,15 @@ export class GroupVoteCommands extends plugin {
     targetQQ = normalizeId(targetQQ)
     const key = `${e.group_id}:${targetQQ}`
     if (!targetQQ) {
-      await e.reply('❎ 请艾特或输入需要进行跟票的被禁言人QQ')
+      await e.reply('请艾特或输入需要进行跟票的被禁言人QQ')
       return true
     }
     if (Number(e.user_id) === Number(targetQQ)) {
-      await e.reply('❎ 您不能对自己进行投票')
+      await e.reply('您不能对自己进行投票')
       return true
     }
     if (!this.vote[key]) {
-      await e.reply('❎ 未找到对应投票')
+      await e.reply('未找到对应投票')
       return true
     }
     const { list, type } = this.vote[key]
@@ -899,7 +977,7 @@ export class GroupVoteCommands extends plugin {
       return true
     }
     if (list.includes(e.user_id)) {
-      await e.reply('❎ 你已参与过投票，请勿重复参与')
+      await e.reply('你已参与过投票，请勿重复参与')
       return true
     }
     if (support) {
@@ -932,10 +1010,11 @@ export class GroupVerifyCommands extends plugin {
   }
 
   async reverify(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
     if (!(config.groupAdmin?.groupVerify?.openGroup || []).includes(Number(e.group_id))) {
-      await e.reply('当前群未开启验证哦~', true)
+      await e.reply('当前群未开启验证', true)
       return true
     }
     let qq = extractAtIds(e)[0]
@@ -948,7 +1027,7 @@ export class GroupVerifyCommands extends plugin {
     }
     try {
       await reverifyUser(e, qq)
-      await e.reply('✅ 已重新发起验证')
+      await e.reply('已重新发起验证')
     } catch (err) {
       await e.reply(err.message || String(err))
     }
@@ -956,6 +1035,7 @@ export class GroupVerifyCommands extends plugin {
   }
 
   async reverifyNeverSpeak(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     try {
       const list = await getService(e).getNeverSpeak(e.group_id)
@@ -965,7 +1045,7 @@ export class GroupVerifyCommands extends plugin {
         successCount++
         await new Promise(resolve => setTimeout(resolve, 1000))
       }
-      await e.reply(`✅ 已重新发起 ${successCount} 位成员的验证`)
+      await e.reply(`已重新发起 ${successCount} 位成员的验证`)
     } catch (err) {
       await e.reply(err.message || String(err))
     }
@@ -973,10 +1053,11 @@ export class GroupVerifyCommands extends plugin {
   }
 
   async pass(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
     if (!(config.groupAdmin?.groupVerify?.openGroup || []).includes(Number(e.group_id))) {
-      await e.reply('当前群未开启验证哦~', true)
+      await e.reply('当前群未开启验证', true)
       return true
     }
     let qq = extractAtIds(e)[0]
@@ -985,11 +1066,11 @@ export class GroupVerifyCommands extends plugin {
     }
     qq = Number(qq) || String(qq)
     if (!/^\d{5,}$/.test(String(qq))) {
-      await e.reply('❎ 请输入正确的QQ号')
+      await e.reply('请输入正确的QQ号')
       return true
     }
     if (!hasVerifySession(e.group_id, qq)) {
-      await e.reply('❎ 目标群成员当前无需验证')
+      await e.reply('目标群成员当前无需验证')
       return true
     }
     const msg = await passVerify(e.group_id, qq)
@@ -998,46 +1079,49 @@ export class GroupVerifyCommands extends plugin {
   }
 
   async switchVerify(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
     const enable = /开启/.test(getMessageText(e))
     const list = config.groupAdmin.groupVerify.openGroup || []
     const exists = list.includes(Number(e.group_id))
     if (exists && enable) {
-      await e.reply('❎ 本群验证已处于开启状态')
+      await e.reply('本群验证已处于开启状态')
       return true
     }
     if (!exists && !enable) {
-      await e.reply('❎ 本群暂未开启验证')
+      await e.reply('本群暂未开启验证')
       return true
     }
     config.groupAdmin.groupVerify.openGroup = enable
       ? [...new Set([...list, Number(e.group_id)])]
       : list.filter(item => Number(item) !== Number(e.group_id))
     Config.saveConfig(config)
-    await e.reply(`✅ 已${enable ? '开启' : '关闭'}本群验证`)
+    await e.reply(`已${enable ? '开启' : '关闭'}本群验证`)
     return true
   }
 
   async switchMode(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'master')) return true
     const config = getGroupConfig()
     const value = config.groupAdmin.groupVerify.mode === '模糊' ? '精确' : '模糊'
     config.groupAdmin.groupVerify.mode = value
     Config.saveConfig(config)
-    await e.reply(`✅ 已切换验证模式为${value}验证`)
+    await e.reply(`已切换验证模式为${value}验证`)
     return true
   }
 
   async setOvertime(e) {
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'master')) return true
     const config = getGroupConfig()
     const overtime = Number(getMessageText(e).match(/\d+/)?.[0] || 300)
     config.groupAdmin.groupVerify.time = overtime
     Config.saveConfig(config)
-    await e.reply(`✅ 已将验证超时时间设置为${overtime}秒`)
+    await e.reply(`已将验证超时时间设置为${overtime}秒`)
     if (overtime < 60) {
-      await e.reply('建议至少一分钟(60秒)哦')
+      await e.reply('建议至少一分钟(60秒)')
     }
     return true
   }
@@ -1059,18 +1143,20 @@ export class GroupAnnounceCommands extends plugin {
   }
 
   async addAnnounce(e) {
+    if (!isGroupAdminFeatureEnabled('announceEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const msg = getMessageText(e).replace(/#发群?公告/g, '').trim()
     if (!msg) {
-      await e.reply('❎ 公告不能为空')
+      await e.reply('公告不能为空')
       return true
     }
     const ok = await sendGroupNotice(e, e.group_id, msg, e.img?.[0] || '')
-    await e.reply(ok ? '✅ 公告已发送' : '❎ 发送失败')
+    await e.reply(ok ? '公告已发送' : '发送失败')
     return true
   }
 
   async getAnnounce(e) {
+    if (!isGroupAdminFeatureEnabled('announceEnabled')) return false
     const list = await getGroupNoticeList(e, e.group_id)
     if (!Array.isArray(list) || list.length === 0) {
       await e.reply('当前群暂无公告')
@@ -1087,20 +1173,21 @@ export class GroupAnnounceCommands extends plugin {
   }
 
   async deleteAnnounce(e) {
+    if (!isGroupAdminFeatureEnabled('announceEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const index = Number(getMessageText(e).replace(/#删群?公告/g, '').trim())
     if (!index) {
-      await e.reply('❎ 序号不可为空')
+      await e.reply('序号不可为空')
       return true
     }
     const list = await getGroupNoticeList(e, e.group_id)
     const target = list[index - 1]
     if (!target) {
-      await e.reply('❎ 未找到对应公告')
+      await e.reply('未找到对应公告')
       return true
     }
     const ok = await deleteGroupNotice(e, e.group_id, target.notice_id || target.id)
-    await e.reply(ok ? `✅ 已删除「${target.title || target.text || target.notice_id || target.id}」` : '❎ 删除失败')
+    await e.reply(ok ? `已删除「${target.title || target.text || target.notice_id || target.id}」` : '删除失败')
     return true
   }
 }
