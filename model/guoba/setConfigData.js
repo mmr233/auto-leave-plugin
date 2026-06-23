@@ -1,7 +1,24 @@
 import { Config } from '../../components/config.js'
 import { saveUserBlacklist } from '../../utils/yunzaiConfig.js'
-import { normalizeIdList, normalizeNotifyUsers, REVIEW_MODE } from '../inviteManagement.js'
+import { normalizeNotifyUsers, REVIEW_MODE } from '../inviteManagement.js'
 import lodash from 'lodash'
+
+function normalizeGroupSelectValues(value) {
+  const list = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value])
+  const groups = []
+
+  for (const item of list) {
+    const raw = typeof item === 'object' && item !== null
+      ? (item.group_id ?? item.groupId ?? item.value ?? item.id)
+      : item
+    const groupId = parseInt(raw)
+    if (!isNaN(groupId) && groupId > 0) {
+      groups.push(groupId)
+    }
+  }
+
+  return [...new Set(groups)]
+}
 
 /**
  * 保存配置数据
@@ -31,11 +48,7 @@ export async function setConfigData(data, { Result }) {
 
     // 处理白名单群聊（GSelectGroup 组件返回数组）
     if (whitelistGroups !== undefined) {
-      const groupList = [...new Set(
-        Array.isArray(whitelistGroups)
-          ? whitelistGroups.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-          : []
-      )]
+      const groupList = normalizeGroupSelectValues(whitelistGroups)
 
       if (Config.saveWhitelist(groupList)) {
         logger.info(`[自动退群] 白名单群聊已更新，共 ${groupList.length} 个`)
@@ -46,11 +59,7 @@ export async function setConfigData(data, { Result }) {
 
     // 处理黑名单群聊（GSelectGroup 组件返回数组）
     if (blacklistGroups !== undefined) {
-      const groupList = [...new Set(
-        Array.isArray(blacklistGroups)
-          ? blacklistGroups.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-          : []
-      )]
+      const groupList = normalizeGroupSelectValues(blacklistGroups)
 
       if (Config.saveBlacklist(groupList)) {
         logger.info(`[自动退群] 黑名单群聊已更新，共 ${groupList.length} 个`)
@@ -87,16 +96,12 @@ export async function setConfigData(data, { Result }) {
         )]
       }
 
-      if (Array.isArray(config.groupAdmin.groupVerify?.openGroup)) {
-        config.groupAdmin.groupVerify.openGroup = [...new Set(
-          config.groupAdmin.groupVerify.openGroup.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-        )]
+      if (config.groupAdmin.groupVerify?.openGroup !== undefined) {
+        config.groupAdmin.groupVerify.openGroup = normalizeGroupSelectValues(config.groupAdmin.groupVerify.openGroup)
       }
 
-      if (Array.isArray(config.groupAdmin.groupAddNotice?.openGroup)) {
-        config.groupAdmin.groupAddNotice.openGroup = [...new Set(
-          config.groupAdmin.groupAddNotice.openGroup.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0)
-        )]
+      if (config.groupAdmin.groupAddNotice?.openGroup !== undefined) {
+        config.groupAdmin.groupAddNotice.openGroup = normalizeGroupSelectValues(config.groupAdmin.groupAddNotice.openGroup)
       }
 
       if (Array.isArray(config.groupAdmin.groupVerify?.successMsgs)) {
@@ -120,7 +125,7 @@ export async function setConfigData(data, { Result }) {
       const invite = config.inviteManagement
       for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups']) {
         if (invite[key] !== undefined) {
-          invite[key] = normalizeIdList(invite[key])
+          invite[key] = normalizeGroupSelectValues(invite[key])
         }
       }
       if (invite.notifyUsers !== undefined) {
