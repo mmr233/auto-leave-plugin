@@ -70,6 +70,25 @@
     "blacklistUserKick": "检测到黑名单用户，已自动踢出。",
     "adminReply": "管理员触发违禁词"
   },
+  "inviteMessages": {
+    "reviewNotification": "机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 #确认加群 或 #拒绝加群\n备用方式：#确认加群 {groupId}\n有效期：{expireMinutes} 分钟",
+    "inviteSubmitted": "加群邀请已提交审核\n群号：{groupId}\n群名：{groupName}\n有效期：{expireMinutes} 分钟",
+    "inviteApproved": "加群邀请已通过\n群号：{groupId}\n群名：{groupName}",
+    "inviteRejected": "加群邀请已拒绝\n群号：{groupId}\n群名：{groupName}",
+    "resultApproved": "加群请求已同意\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}",
+    "resultRejected": "加群请求已拒绝\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}",
+    "autoApproved": "加群邀请已自动同意\n群号：{groupId}\n群名：{groupName}",
+    "autoRejected": "加群邀请已自动拒绝\n群号：{groupId}\n群名：{groupName}",
+    "blackGroupRejected": "加群邀请已拒绝\n群号：{groupId}\n群名：{groupName}\n原因：该群在黑名单中",
+    "reviewDisabled": "加群审核已关闭\n群号：{groupId}\n机器人不会处理本次邀请",
+    "noNotifyTarget": "加群邀请已收到，但没有配置可用的审核通知群或通知用户",
+    "pendingNotFound": "未找到对应的加群请求，可能已过期或已处理",
+    "permissionDenied": "权限不足，只有主人、通知用户、审核群管理员或邀请者可处理",
+    "processFailed": "处理失败：{error}",
+    "blackGroupRejectReason": "群聊在黑名单中",
+    "autoRejectReason": "已开启自动拒绝",
+    "manualRejectReason": "审核拒绝"
+  },
   "inviteManagement": {
     "enabled": true,
     "reviewMode": 2,

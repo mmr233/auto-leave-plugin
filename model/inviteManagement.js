@@ -1,4 +1,4 @@
-import { Config } from '../components/config.js'
+import { Config, DEFAULT_INVITE_MESSAGES } from '../components/config.js'
 import { sendGroupMessage, sendPrivateMessage } from '../utils/groupInfo.js'
 import {
   callBotApi,
@@ -122,6 +122,13 @@ function getApiData(res) {
   return res?.data || res?.response || res || {}
 }
 
+function formatTemplate(template, vars = {}) {
+  return String(template || '').replace(/\{(\w+)\}/g, (_, key) => {
+    const value = vars[key]
+    return value === undefined || value === null ? '' : String(value)
+  })
+}
+
 export async function setGroupAddRequest(botOrEvent, request, approve, reason = '') {
   const bot = getBot(botOrEvent)
   const params = {
@@ -195,6 +202,14 @@ export class InviteManagementService {
     return this.config.requestExpireMinutes * 60 * 1000
   }
 
+  get inviteMessages() {
+    const messages = this.rootConfig?.inviteMessages
+    return {
+      ...DEFAULT_INVITE_MESSAGES,
+      ...(messages && typeof messages === 'object' && !Array.isArray(messages) ? messages : {})
+    }
+  }
+
   get allBlackGroups() {
     return unique([
       ...this.config.blackGroups,
@@ -235,36 +250,37 @@ export class InviteManagementService {
     }
   }
 
-  buildReviewMessage(request) {
-    return [
-      '机器人加群邀请',
-      `群号：${request.groupId}`,
-      `群名：${request.groupName}`,
-      `邀请人：${request.userId}`,
-      `邀请人昵称：${request.nickname}`,
-      `请求ID：${request.requestId}`,
-      '',
-      '处理方式：引用本消息发送 #确认加群 或 #拒绝加群',
-      `备用方式：#确认加群 ${request.groupId}`,
-      `有效期：${this.config.requestExpireMinutes} 分钟`
-    ].join('\n')
+  getTemplateVars(request = {}, extra = {}) {
+    return {
+      groupId: request.groupId || request.group_id || '',
+      groupName: request.groupName || request.group_name || '未知群名',
+      userId: request.userId || request.user_id || '',
+      nickname: request.nickname || '未知用户',
+      requestId: request.requestId || '',
+      expireMinutes: this.config.requestExpireMinutes,
+      reviewMode: REVIEW_MODE_LABEL[this.config.reviewMode] || '',
+      error: '',
+      ...extra
+    }
   }
 
-  buildInviteeMessage(request, status) {
-    return [
-      status,
-      `群号：${request.groupId}`,
-      `群名：${request.groupName}`
-    ].join('\n')
+  formatInviteMessage(key, request = {}, extra = {}) {
+    const fallback = DEFAULT_INVITE_MESSAGES[key] || ''
+    const current = this.inviteMessages[key]
+    const template = String(current ?? '').trim() ? current : fallback
+    return formatTemplate(template || fallback, this.getTemplateVars(request, extra))
+  }
+
+  buildReviewMessage(request) {
+    return this.formatInviteMessage('reviewNotification', request)
+  }
+
+  buildInviteeMessage(request, templateKey = 'inviteSubmitted') {
+    return this.formatInviteMessage(templateKey, request)
   }
 
   buildResultMessage(request, approve) {
-    return [
-      approve ? '加群请求已同意' : '加群请求已拒绝',
-      `群号：${request.groupId}`,
-      `群名：${request.groupName}`,
-      `邀请人：${request.userId}`
-    ].join('\n')
+    return this.formatInviteMessage(approve ? 'resultApproved' : 'resultRejected', request)
   }
 
   async getGroupInfo(groupId) {

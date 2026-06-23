@@ -47,13 +47,14 @@ export class BotInviteRequestHandler extends plugin {
     if (service.isBlackGroup(groupId)) {
       try {
         const groupInfo = await service.getGroupInfo(groupId)
-        await service.approveCurrentEvent(e, false, '群聊在黑名单中')
-        const msg = `加群邀请已拒绝\n群号：${groupId}\n群名：${groupInfo.groupName}\n原因：该群在黑名单中`
-        await service.notifyInviter({
+        const request = {
           userId: String(e.user_id || ''),
           groupId,
           groupName: groupInfo.groupName
-        }, msg)
+        }
+        await service.approveCurrentEvent(e, false, service.formatInviteMessage('blackGroupRejectReason', request))
+        const msg = service.formatInviteMessage('blackGroupRejected', request)
+        await service.notifyInviter(request, msg)
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
         logger.error(`[自动退群] 拒绝黑名单群邀请失败: ${err.message}`)
@@ -65,12 +66,13 @@ export class BotInviteRequestHandler extends plugin {
       try {
         await service.approveCurrentEvent(e, true)
         const groupInfo = await service.getGroupInfo(groupId)
-        const msg = `加群邀请已自动同意\n群号：${groupId}\n群名：${groupInfo.groupName}`
-        await service.notifyInviter({
+        const request = {
           userId: String(e.user_id || ''),
           groupId,
           groupName: groupInfo.groupName
-        }, msg)
+        }
+        const msg = service.formatInviteMessage('autoApproved', request)
+        await service.notifyInviter(request, msg)
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
         logger.error(`[自动退群] 同意白名单群邀请失败: ${err.message}`)
@@ -83,12 +85,13 @@ export class BotInviteRequestHandler extends plugin {
       try {
         await service.approveCurrentEvent(e, true)
         const groupInfo = await service.getGroupInfo(groupId)
-        const msg = `加群邀请已自动同意\n群号：${groupId}\n群名：${groupInfo.groupName}`
-        await service.notifyInviter({
+        const request = {
           userId: String(e.user_id || ''),
           groupId,
           groupName: groupInfo.groupName
-        }, msg)
+        }
+        const msg = service.formatInviteMessage('autoApproved', request)
+        await service.notifyInviter(request, msg)
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
         logger.error(`[自动退群] 自动同意群邀请失败: ${err.message}`)
@@ -97,26 +100,28 @@ export class BotInviteRequestHandler extends plugin {
     }
 
     if (mode === REVIEW_MODE.DISABLED) {
-      const msg = `加群审核已关闭\n群号：${groupId}\n机器人不会处理本次邀请`
-      await service.notifyInviter({
+      const request = {
         userId: String(e.user_id || ''),
         groupId,
         groupName: '未知群名'
-      }, msg)
+      }
+      const msg = service.formatInviteMessage('reviewDisabled', request)
+      await service.notifyInviter(request, msg)
       await service.notifyUsers(msg, [String(e.user_id || '')])
       return true
     }
 
     if (mode === REVIEW_MODE.AUTO_REJECT) {
       try {
-        await service.approveCurrentEvent(e, false, '已开启自动拒绝')
         const groupInfo = await service.getGroupInfo(groupId)
-        const msg = `加群邀请已自动拒绝\n群号：${groupId}\n群名：${groupInfo.groupName}`
-        await service.notifyInviter({
+        const request = {
           userId: String(e.user_id || ''),
           groupId,
           groupName: groupInfo.groupName
-        }, msg)
+        }
+        await service.approveCurrentEvent(e, false, service.formatInviteMessage('autoRejectReason', request))
+        const msg = service.formatInviteMessage('autoRejected', request)
+        await service.notifyInviter(request, msg)
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
         logger.error(`[自动退群] 自动拒绝群邀请失败: ${err.message}`)
@@ -132,18 +137,13 @@ export class BotInviteRequestHandler extends plugin {
     const savedRequest = await service.sendReviewNotifications(request)
 
     if (savedRequest.manageGroupIds.length === 0 && service.config.notifyUsers.length === 0) {
-      await service.notifyInviter(request, '加群邀请已收到，但没有配置可用的审核通知群或通知用户')
+      await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
       logger.warn('[自动退群] 未配置可用的群邀请审核通知目标')
       return true
     }
 
     service.addPendingRequest(savedRequest)
-    await service.notifyInviter(request, [
-      '加群邀请已提交审核',
-      `群号：${request.groupId}`,
-      `群名：${request.groupName}`,
-      `有效期：${service.config.requestExpireMinutes} 分钟`
-    ].join('\n'))
+    await service.notifyInviter(request, service.buildInviteeMessage(request, 'inviteSubmitted'))
 
     return true
   }
@@ -191,22 +191,25 @@ export class BotInviteConfirmHandler extends plugin {
     })
 
     if (!pendingRequest) {
-      await e.reply('未找到对应的加群请求，可能已过期或已处理')
+      await e.reply(service.formatInviteMessage('pendingNotFound'))
       return true
     }
 
     if (!await service.canHandleRequest(e, pendingRequest)) {
-      await e.reply('权限不足，只有主人、通知用户、审核群管理员或邀请者可处理')
+      await e.reply(service.formatInviteMessage('permissionDenied', pendingRequest))
       return true
     }
 
     try {
-      await service.approvePendingRequest(pendingRequest, approve, approve ? '' : '审核拒绝')
+      const reason = approve ? '' : service.formatInviteMessage('manualRejectReason', pendingRequest)
+      await service.approvePendingRequest(pendingRequest, approve, reason)
       service.removePendingRequest(pendingRequest.requestId)
     } catch (err) {
       service.removePendingRequest(pendingRequest.requestId)
       logger.error(`[自动退群] 处理群邀请请求失败: ${err.message}`)
-      await e.reply(`处理失败：${err.message}`)
+      await e.reply(service.formatInviteMessage('processFailed', pendingRequest, {
+        error: err.message
+      }))
       return true
     }
 
@@ -215,7 +218,7 @@ export class BotInviteConfirmHandler extends plugin {
     await service.notifyUsers(resultMsg, [String(e.user_id || '')])
     await service.notifyInviter(
       pendingRequest,
-      service.buildInviteeMessage(pendingRequest, approve ? '加群邀请已通过' : '加群邀请已拒绝')
+      service.buildInviteeMessage(pendingRequest, approve ? 'inviteApproved' : 'inviteRejected')
     )
 
     return true
