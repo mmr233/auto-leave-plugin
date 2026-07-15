@@ -15,6 +15,45 @@ const retryCountMap = new Map()
  */
 const muteCountMap = new Map()
 
+function formatTemplate(template, variables) {
+  return Object.entries(variables).reduce((text, [key, value]) => {
+    return text.split(`{${key}}`).join(String(value))
+  }, String(template || ''))
+}
+
+function buildMuteLeaveReason(config, { muteCount, operatorId, duration }) {
+  const operator = operatorId || '未知'
+  const muteDuration = duration || 0
+  const blacklistStatus = config.autoBlacklistOnMute ? '已自动加入群黑名单' : '未自动加入群黑名单'
+  const fallbackReason = `机器人被禁言${muteCount}次，已达到退群阈值${config.muteCountLimit}次；本次操作者：${operator}；禁言时长：${muteDuration}秒；${blacklistStatus}`
+  const template = String(config.muteLeaveMessage || '').trim()
+
+  if (!template) {
+    return fallbackReason
+  }
+
+  const reason = formatTemplate(template, {
+    muteCount,
+    muteCountLimit: config.muteCountLimit,
+    operatorId: operator,
+    duration: muteDuration,
+    blacklistStatus
+  })
+
+  const extraDetails = []
+  if (!template.includes('{operatorId}')) {
+    extraDetails.push(`操作者：${operator}`)
+  }
+  if (!template.includes('{duration}')) {
+    extraDetails.push(`禁言时长：${muteDuration}秒`)
+  }
+  if (!template.includes('{blacklistStatus}')) {
+    extraDetails.push(`黑名单处理：${blacklistStatus}`)
+  }
+
+  return extraDetails.length ? `${reason}\n${extraDetails.join('\n')}` : reason
+}
+
 /**
  * 加载禁言次数记录
  */
@@ -103,23 +142,16 @@ export async function handleGroupMute(e) {
 
     // 检查是否达到禁言次数限制
     if (newCount >= config.muteCountLimit) {
-      let message = config.muteLeaveMessage
-        .replace('{muteCount}', newCount)
-        .replace('{muteCountLimit}', config.muteCountLimit)
-
       const groupName = await getGroupName(parseInt(groupId), e.bot || Bot)
-
-      // 构建详细的退群原因
-      const detailedReason = `被禁言${newCount}次超限 - 操作者: ${operatorId}`
+      const detailedReason = buildMuteLeaveReason(config, {
+        muteCount: newCount,
+        operatorId,
+        duration
+      })
 
       // 检查是否需要自动加入黑名单
       if (config.autoBlacklistOnMute) {
         await addToBlacklistAuto(groupId, detailedReason)
-        message = config.muteLeaveMessage
-          .replace('{muteCount}', newCount)
-          .replace('{muteCountLimit}', config.muteCountLimit)
-      } else {
-        message = `检测到被禁言次数已达${newCount}次，超过${config.muteCountLimit}次限制，胡桃将自动退群。`
       }
 
       logger.warn(`[自动退群] 群 ${groupId} 禁言次数已达到限制，开始退群`)
@@ -130,9 +162,10 @@ export async function handleGroupMute(e) {
           groupId,
           memberCount: 0,
           bot: e.bot || Bot,
-          message,
+          message: '',
           groupName,
-          reason: detailedReason
+          reason: detailedReason,
+          skipGroupMessage: true
         })
         // 清除该群的禁言记录
         muteCountMap.delete(groupId)

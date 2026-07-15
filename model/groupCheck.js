@@ -7,7 +7,7 @@ import { getMasterQQ, sleep } from '../utils/common.js'
  * @param {object} options - 退群选项
  */
 export async function executeLeaveGroup(options) {
-  const { groupId, memberCount, bot, message, groupName, reason } = options
+  const { groupId, memberCount, bot, message, groupName, reason, skipGroupMessage = false } = options
   const config = Config.loadConfig()
 
   try {
@@ -18,11 +18,15 @@ export async function executeLeaveGroup(options) {
     const actualGroupName = groupName || await getGroupName(parseInt(groupId), bot)
 
     // 发送退群提示消息
-    try {
-      await sendGroupMessage(bot, groupId, message)
-      logger.info(`[自动退群] 已向群 ${groupId} 发送退群提示消息`)
-    } catch (msgErr) {
-      logger.warn(`[自动退群] 发送退群消息失败: ${msgErr.message}`)
+    if (!skipGroupMessage && message) {
+      try {
+        await sendGroupMessage(bot, groupId, message)
+        logger.info(`[自动退群] 已向群 ${groupId} 发送退群提示消息`)
+      } catch (msgErr) {
+        logger.warn(`[自动退群] 发送退群消息失败: ${msgErr.message}`)
+      }
+    } else if (skipGroupMessage) {
+      logger.info(`[自动退群] 已跳过群 ${groupId} 的退群提示消息`)
     }
 
     // 延迟退群

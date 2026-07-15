@@ -3,7 +3,7 @@
  */
 const MEMBER_LEAVE_VARIABLE_HELP = '变量说明：{memberCount}=当前群人数，{minMemberCount}=配置的最低人数'
 const WHITELIST_JOIN_VARIABLE_HELP = '变量说明：{groupId}=群号'
-const MUTE_LEAVE_VARIABLE_HELP = '变量说明：{muteCount}=当前累计禁言次数，{muteCountLimit}=触发退群的禁言次数上限'
+const MUTE_LEAVE_VARIABLE_HELP = '变量说明：{muteCount}=当前累计禁言次数，{muteCountLimit}=触发退群的禁言次数上限，{operatorId}=本次禁言操作者QQ，{duration}=本次禁言时长秒数，{blacklistStatus}=是否已自动加入群黑名单'
 const INVITE_COMMON_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{userId}=邀请人QQ，{nickname}=邀请人昵称，{reviewMode}=当前审核模式'
 const INVITE_REVIEW_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{requestId}=审核请求ID，{expireMinutes}=请求有效分钟数`
 const INVITE_EXPIRE_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{expireMinutes}=请求有效分钟数，{reviewMode}=当前审核模式'
@@ -58,11 +58,11 @@ export const messageConfigSchema = [
   },
   {
     field: 'muteLeaveMessage',
-    label: '禁言退群提示',
+    label: '禁言退群原因',
     bottomHelpMessage: MUTE_LEAVE_VARIABLE_HELP,
     component: 'Input',
     componentProps: {
-      placeholder: '请输入禁言退群提示'
+      placeholder: '请输入禁言退群原因'
     }
   },
   {

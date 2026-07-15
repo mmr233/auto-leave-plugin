@@ -12,6 +12,7 @@ const pluginRoot = path.join(__dirname, '..')
 // 数据目录（Yunzai/data/自动退群）
 const dataRoot = path.join(process.cwd(), 'data/自动退群')
 const DEFAULT_NOTIFICATION_MESSAGE = '自动退群通知\n\n群号：{groupId}\n\n群名：{groupName}\n\n退群原因：{reason}\n\n时间：{time}'
+const DEFAULT_MUTE_LEAVE_REASON = '机器人被禁言{muteCount}次，已达到退群阈值{muteCountLimit}次；本次操作者：{operatorId}；禁言时长：{duration}秒；{blacklistStatus}'
 const LEGACY_NOTIFICATION_MESSAGES = [
   '自动退群通知\n群号：{groupId}\n群名：{groupName}\n退群原因：{reason}\n时间：{time}',
   '\u{1F6A8} 自动退群通知 \u{1F6A8}\n\u{1F4CD} 群号：{groupId}\n\u{1F4DD} 群名：{groupName}\n\u26A0\uFE0F 退群原因：{reason}\n\u{1F550} 时间：{time}'
@@ -70,6 +71,11 @@ const LEGACY_DEFAULT_TEXTS = [
     path: 'managementMessages.blacklistUserKick',
     legacy: ['\u{1F6AB} 检测到黑名单用户，已自动踢出。'],
     next: '检测到黑名单用户，已自动踢出。'
+  },
+  {
+    path: 'muteLeaveMessage',
+    legacy: ['检测到被禁言次数已达{muteCount}次，超过{muteCountLimit}次限制，胡桃将自动退群并将此群加入黑名单。'],
+    next: DEFAULT_MUTE_LEAVE_REASON
   }
 ]
 
@@ -149,7 +155,7 @@ const DEFAULT_CONFIG = {
   blacklistMessage: '该群在黑名单中，胡桃将自动退群。',
   whitelistJoinMessage: '胡桃已进入白名单群聊 {groupId}，将不会自动退群。',
   bannedWordLeaveMessage: '检测到有用户多次发送违禁词，胡桃将自动退群并将此群加入黑名单。如有异议请联系管理员。',
-  muteLeaveMessage: '检测到被禁言次数已达{muteCount}次，超过{muteCountLimit}次限制，胡桃将自动退群并将此群加入黑名单。',
+  muteLeaveMessage: DEFAULT_MUTE_LEAVE_REASON,
   errorLeaveMessage: '出现错误，即将退群，如有疑问请联系管理员修复或申请白名单',
 
   // 白名单群聊管理消息配置
