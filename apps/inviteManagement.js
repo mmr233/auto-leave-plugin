@@ -21,6 +21,11 @@ function getCommandGroupId(text) {
   return text.replace(/^#(确认|同意|拒绝)加群/, '').trim()
 }
 
+function getEnabledInviteService(e) {
+  const service = new InviteManagementService(e)
+  return service.config.enabled ? service : null
+}
+
 export class BotInviteRequestHandler extends plugin {
   constructor() {
     super({
@@ -166,9 +171,13 @@ export class BotInviteConfirmHandler extends plugin {
   }
 
   async handleConfirm(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     const text = getText(e)
     const approve = /^(#确认加群|#同意加群)/.test(text)
-    const service = new InviteManagementService(e)
     const replyMsgId = getReplyMsgId(e)
     const commandTarget = getCommandGroupId(text)
     let requestId = ''
@@ -184,6 +193,7 @@ export class BotInviteConfirmHandler extends plugin {
       requestId = quoteText.match(/请求ID[:：]\s*([a-z0-9-]+)/i)?.[1] || requestId
     }
 
+    const hasPendingRequests = service.cleanExpiredPendingRequests().length > 0
     const pendingRequest = service.findPendingRequest({
       msgId: replyMsgId,
       groupId,
@@ -191,6 +201,9 @@ export class BotInviteConfirmHandler extends plugin {
     })
 
     if (!pendingRequest) {
+      if (!hasPendingRequests) {
+        return false
+      }
       await e.reply(service.formatInviteMessage('pendingNotFound'))
       return true
     }
@@ -262,6 +275,11 @@ export class BotInviteManageCommands extends plugin {
   }
 
   async setReviewMode(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能修改群邀请审核模式')
       return true
@@ -276,13 +294,17 @@ export class BotInviteManageCommands extends plugin {
       自动拒绝: REVIEW_MODE.AUTO_REJECT
     }
     const mode = modeMap[modeText]
-    const service = new InviteManagementService(e)
     service.setReviewMode(mode)
     await e.reply(`群邀请审核模式已设为${REVIEW_MODE_LABEL[mode]}`)
     return true
   }
 
   async manageInviteList(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能管理邀请黑白名单')
       return true
@@ -296,20 +318,23 @@ export class BotInviteManageCommands extends plugin {
     const [, actionText, type, groupId] = match
     const key = type === '黑' ? 'blackGroups' : 'whiteGroups'
     const action = actionText === '添加' ? 'add' : 'del'
-    const service = new InviteManagementService(e)
     const result = service.updateGroupList(key, groupId, action)
     await e.reply(result.message)
     return true
   }
 
   async viewInviteList(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能查看邀请黑白名单')
       return true
     }
 
     const type = getText(e).includes('黑') ? '黑' : '白'
-    const service = new InviteManagementService(e)
     const list = type === '黑' ? service.config.blackGroups : service.config.whiteGroups
 
     await e.reply(list.length
@@ -320,6 +345,11 @@ export class BotInviteManageCommands extends plugin {
   }
 
   async manageNotifyGroup(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能管理邀请通知群')
       return true
@@ -332,19 +362,22 @@ export class BotInviteManageCommands extends plugin {
       return true
     }
 
-    const service = new InviteManagementService(e)
     const result = service.updateGroupList('notifyGroups', groupId, match?.[1] === '添加' ? 'add' : 'del')
     await e.reply(result.message)
     return true
   }
 
   async viewNotifyGroups(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能查看邀请通知群')
       return true
     }
 
-    const service = new InviteManagementService(e)
     await e.reply(service.config.notifyGroups.length
       ? `邀请通知群：\n${service.config.notifyGroups.join('\n')}`
       : '邀请通知群为空'
@@ -353,12 +386,16 @@ export class BotInviteManageCommands extends plugin {
   }
 
   async viewInviteConfig(e = this.e) {
+    const service = getEnabledInviteService(e)
+    if (!service) {
+      return false
+    }
+
     if (!e.isMaster) {
       await e.reply('只有主人才能查看群邀请审核配置')
       return true
     }
 
-    const service = new InviteManagementService(e)
     const lines = [
       '群邀请审核配置',
       `状态：${service.config.enabled ? '已启用' : '已关闭'}`,
