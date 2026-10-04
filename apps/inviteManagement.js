@@ -20,7 +20,7 @@ function getReplyMsgId(e) {
 }
 
 function getCommandGroupId(text) {
-  return text.replace(/^#(强制同意|确认|同意|拒绝)加群/, '').trim()
+  return text.replace(/^[tT](强制同意|确认|同意|拒绝)加群/, '').trim()
 }
 
 function getEnabledInviteService(e) {
@@ -227,7 +227,7 @@ export class BotInviteConfirmHandler extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: '^#(强制同意|确认|同意|拒绝)加群(\\s+\\S+)?$',
+          reg: '^[tT](强制同意|确认|同意|拒绝)加群(\\s+\\S+)?$',
           fnc: 'handleConfirm'
         }
       ]
@@ -241,8 +241,8 @@ export class BotInviteConfirmHandler extends plugin {
     }
 
     const text = getText(e)
-    const force = /^#强制同意加群/.test(text)
-    const approve = force || /^(#确认加群|#同意加群)/.test(text)
+    const force = /^[tT]强制同意加群/.test(text)
+    const approve = force || /^[tT](确认加群|同意加群)/.test(text)
 
     if (force && !e.isMaster) {
       await e.reply('只有主人才能强制同意群邀请')
@@ -326,27 +326,27 @@ export class BotInviteManageCommands extends plugin {
       priority: 599,
       rule: [
         {
-          reg: '^#群邀请审核(自动同意|关闭|人工审核|自动拒绝)$',
+          reg: '^[tT]群邀请审核(自动同意|关闭|人工审核|自动拒绝)$',
           fnc: 'setReviewMode'
         },
         {
-          reg: '^#(添加|删除)邀请(黑|白)名单群\\s*(\\d+)$',
+          reg: '^[tT](添加|删除)邀请(黑|白)名单群\\s*(\\d+)$',
           fnc: 'manageInviteList'
         },
         {
-          reg: '^#查看邀请(黑|白)名单群$',
+          reg: '^[tT]查看邀请(黑|白)名单群$',
           fnc: 'viewInviteList'
         },
         {
-          reg: '^#(添加|删除)邀请通知群\\s*(\\d+)?$',
+          reg: '^[tT](添加|删除)邀请通知群\\s*(\\d+)?$',
           fnc: 'manageNotifyGroup'
         },
         {
-          reg: '^#查看邀请通知群$',
+          reg: '^[tT]查看邀请通知群$',
           fnc: 'viewNotifyGroups'
         },
         {
-          reg: '^#查看群邀请审核$',
+          reg: '^[tT]查看群邀请审核$',
           fnc: 'viewInviteConfig'
         }
       ]
@@ -365,7 +365,7 @@ export class BotInviteManageCommands extends plugin {
     }
 
     const text = getText(e)
-    const modeText = text.replace('#群邀请审核', '')
+    const modeText = text.replace(/^[tT]群邀请审核/, '')
     const modeMap = {
       自动同意: REVIEW_MODE.AUTO_APPROVE,
       关闭: REVIEW_MODE.DISABLED,
@@ -389,7 +389,7 @@ export class BotInviteManageCommands extends plugin {
       return true
     }
 
-    const match = getText(e).match(/^#(添加|删除)邀请(黑|白)名单群\s*(\d+)$/)
+    const match = getText(e).match(/^[tT](添加|删除)邀请(黑|白)名单群\s*(\d+)$/)
     if (!match) {
       return false
     }
@@ -434,7 +434,7 @@ export class BotInviteManageCommands extends plugin {
       return true
     }
 
-    const match = getText(e).match(/^#(添加|删除)邀请通知群\s*(\d+)?$/)
+    const match = getText(e).match(/^[tT](添加|删除)邀请通知群\s*(\d+)?$/)
     const groupId = match?.[2] || e.group_id
     if (!groupId) {
       await e.reply('请指定群号或在群内使用')

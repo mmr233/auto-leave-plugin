@@ -529,7 +529,7 @@ export class GroupAdminService {
     pageMsg.unshift(`当前为第${page}页，共${pages.length}页，本页共${pageMsg.length}人，总共${msg.length}人`)
     pageMsg.unshift(`以下为${times}${unit}没发言过的人`)
     if (page < pages.length) {
-      pageMsg.splice(2, 0, `可用 "#查看${times}${unit}没发言过的人第${page + 1}页" 翻页`)
+      pageMsg.splice(2, 0, `可用 "t查看${times}${unit}没发言过的人第${page + 1}页" 翻页`)
     }
     return pageMsg
   }
@@ -566,7 +566,7 @@ export class GroupAdminService {
     pageMsg.unshift(`当前为第${page}页，共${pages.length}页，本页共${pageMsg.length}人，总共${msg.length}人`)
     pageMsg.unshift('以下为进群后从未发言过的人')
     if (page < pages.length) {
-      pageMsg.splice(2, 0, `可用 "#查看从未发言过的人第${page + 1}页" 翻页`)
+      pageMsg.splice(2, 0, `可用 "t查看从未发言过的人第${page + 1}页" 翻页`)
     }
     return pageMsg
   }

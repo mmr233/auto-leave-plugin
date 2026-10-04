@@ -24,7 +24,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.reviewMode',
     label: '审核模式',
-    bottomHelpMessage: '人工审核会发送通知，等待 #确认加群 或 #拒绝加群',
+    bottomHelpMessage: '人工审核会发送通知，等待 t确认加群 或 t拒绝加群',
     component: 'RadioGroup',
     defaultValue: 2,
     componentProps: {
@@ -110,7 +110,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.notifyMasterOnPrecheckReject',
     label: '预检查失败通知主人',
-    bottomHelpMessage: '预检查失败时私聊通知主人，并附带 #强制同意加群 入口',
+    bottomHelpMessage: '预检查失败时私聊通知主人，并附带 t强制同意加群 入口',
     component: 'Switch',
     defaultValue: true
   },

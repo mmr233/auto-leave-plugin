@@ -37,7 +37,7 @@ const DEFAULT_INVITE_MANAGEMENT = {
 }
 
 export const DEFAULT_INVITE_MESSAGES = {
-  reviewNotification: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 #确认加群 或 #拒绝加群\n备用方式：#确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n{precheckNotice}',
+  reviewNotification: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 t确认加群 或 t拒绝加群\n备用方式：t确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n{precheckNotice}',
   inviteSubmitted: '加群邀请已提交审核\n群号：{groupId}\n群名：{groupName}\n有效期：{expireMinutes} 分钟',
   inviteApproved: '加群邀请已通过\n群号：{groupId}\n群名：{groupName}',
   inviteRejected: '加群邀请已拒绝\n群号：{groupId}\n群名：{groupName}',
@@ -48,7 +48,7 @@ export const DEFAULT_INVITE_MESSAGES = {
   blackGroupRejected: '加群邀请已拒绝\n群号：{groupId}\n群名：{groupName}\n原因：该群在黑名单中',
   reviewDisabled: '加群审核已关闭\n群号：{groupId}\n机器人不会处理本次邀请',
   noNotifyTarget: '加群邀请已收到，但没有配置可用的审核通知群或通知用户',
-  precheckRejected: '群邀请预检查未通过\n群号：{groupId}\n群名：{groupName}\n当前成员数：{memberCount}\n最低要求：{minMemberCount}\n原因：{precheckReason}\n处理方式：{precheckAction}\n如需放行，可发送 #强制同意加群 {groupId}',
+  precheckRejected: '群邀请预检查未通过\n群号：{groupId}\n群名：{groupName}\n当前成员数：{memberCount}\n最低要求：{minMemberCount}\n原因：{precheckReason}\n处理方式：{precheckAction}\n如需放行，可发送 t强制同意加群 {groupId}',
   forceApproved: '已强制同意群邀请\n群号：{groupId}\n群名：{groupName}\n机器人将在进群后跳过本次人数退群检查',
   pendingNotFound: '未找到对应的加群请求，可能已过期或已处理',
   permissionDenied: '权限不足，只有主人、通知用户、审核群管理员或邀请者可处理',
@@ -57,6 +57,19 @@ export const DEFAULT_INVITE_MESSAGES = {
   autoRejectReason: '已开启自动拒绝',
   manualRejectReason: '审核拒绝'
 }
+
+const LEGACY_INVITE_MESSAGES = [
+  {
+    path: 'inviteMessages.reviewNotification',
+    legacy: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 #确认加群 或 #拒绝加群\n备用方式：#确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n{precheckNotice}',
+    next: DEFAULT_INVITE_MESSAGES.reviewNotification
+  },
+  {
+    path: 'inviteMessages.precheckRejected',
+    legacy: '群邀请预检查未通过\n群号：{groupId}\n群名：{groupName}\n当前成员数：{memberCount}\n最低要求：{minMemberCount}\n原因：{precheckReason}\n处理方式：{precheckAction}\n如需放行，可发送 #强制同意加群 {groupId}',
+    next: DEFAULT_INVITE_MESSAGES.precheckRejected
+  }
+]
 
 const LEGACY_DEFAULT_TEXTS = [
   {
@@ -309,6 +322,17 @@ class ConfigManager {
   }
 
   /**
+   * 迁移邀请审核默认文案中的旧命令前缀
+   */
+  migrateInviteMessages(config) {
+    for (const item of LEGACY_INVITE_MESSAGES) {
+      if (lodash.get(config, item.path) === item.legacy) {
+        lodash.set(config, item.path, item.next)
+      }
+    }
+  }
+
+  /**
    * 获取 GroupEntry_Plugin 旧配置候选路径
    */
   getGroupEntryConfigCandidates() {
@@ -429,6 +453,7 @@ class ConfigManager {
       }
 
       this.migrateDefaultTexts(mergedConfig)
+      this.migrateInviteMessages(mergedConfig)
       this.migrateGroupEntryInviteConfig(mergedConfig, userConfig)
 
       // 检查是否需要更新配置文件（新增配置项）

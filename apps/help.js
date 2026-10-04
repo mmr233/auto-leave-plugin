@@ -49,7 +49,7 @@ function buildHelpButtons() {
       { text: '违禁词', input: 'T违禁词列表' }
     ],
     [
-      { text: '邀请审核', input: '#查看群邀请审核' },
+      { text: '邀请审核', input: 't查看群邀请审核' },
       { text: '用户黑名单', input: 'T用户黑名单' },
       { text: '更新日志', input: 'T更新日志' }
     ],
@@ -184,31 +184,31 @@ export class AutoLeaveHelp extends plugin {
             icon: 61,
             title: '查看审核配置',
             desc: '查看当前模式、通知目标和待处理数量',
-            command: '#查看群邀请审核'
+            command: 't查看群邀请审核'
           },
           {
             icon: 62,
             title: '切换审核模式',
             desc: '支持自动同意、关闭、人工审核、自动拒绝',
-            command: '#群邀请审核人工审核'
+            command: 't群邀请审核人工审核'
           },
           {
             icon: 63,
             title: '通知群管理',
             desc: '添加或删除接收审核通知的群',
-            command: '#添加邀请通知群 [群号] / #删除邀请通知群 [群号]'
+            command: 't添加邀请通知群 [群号] / t删除邀请通知群 [群号]'
           },
           {
             icon: 64,
             title: '邀请黑白名单',
             desc: '黑名单自动拒绝，白名单自动同意',
-            command: '#添加邀请黑名单群 群号 / #添加邀请白名单群 群号'
+            command: 't添加邀请黑名单群 群号 / t添加邀请白名单群 群号'
           },
           {
             icon: 65,
             title: '处理邀请',
             desc: '引用通知或直接带群号处理',
-            command: '#确认加群 群号 / #拒绝加群 群号'
+            command: 't确认加群 群号 / t拒绝加群 群号'
           }
         ]
       },
@@ -268,37 +268,37 @@ export class AutoLeaveHelp extends plugin {
             icon: 51,
             title: '基础群管',
             desc: '禁言、解禁、全员禁言、踢人、设置管理。踢黑仅白名单群可用',
-            command: '#禁言 @用户 5分钟 / #解禁 @用户 / #全员禁言 / #踢 @用户 / #踢黑 @用户'
+            command: 't禁言 @用户 5分钟 / t解禁 @用户 / t全员禁言 / t踢 @用户 / t踢黑 @用户'
           },
           {
             icon: 52,
             title: '头衔与精华',
             desc: '设置用户头衔、申请头衔、设置精华消息',
-            command: '#设置头衔 @用户 xxx / #我要头衔 xxx / #加精'
+            command: 't设置头衔 @用户 xxx / t我要头衔 xxx / t加精'
           },
           {
             icon: 53,
             title: '群成员清理',
             desc: '查看或清理不活跃成员、从未发言成员',
-            command: '#查看30天没发言的人 / #清理从未发言过的人'
+            command: 't查看30天没发言的人 / t清理从未发言过的人'
           },
           {
             icon: 54,
             title: '投票与验证',
             desc: '投票禁言/踢人，入群验证开关和配置命令',
-            command: '#发起投票禁言 @用户 / #开启验证 / #设置验证超时时间300'
+            command: 't发起投票禁言 @用户 / t开启验证 / t设置验证超时时间300'
           },
           {
             icon: 55,
             title: '群违禁词与公告',
             desc: '支持群级违禁词、头衔屏蔽词、群公告',
-            command: '#新增模糊禁违禁词 xxx / #发群公告 内容 / #查群公告'
+            command: 't新增模糊禁违禁词 xxx / t发群公告 内容 / t查群公告'
           },
           {
             icon: 56,
             title: '定时禁言',
             desc: '按 cron 或 HH:mm 设置全员禁言任务',
-            command: '#定时禁言00:00 / #定时解禁08:00 / #定时禁言任务'
+            command: 't定时禁言00:00 / t定时解禁08:00 / t定时禁言任务'
           }
         ]
       }

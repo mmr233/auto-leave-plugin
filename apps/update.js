@@ -45,6 +45,7 @@ export class AutoLeaveUpdate extends plugin {
     const updater = createUpdater(e)
     if (!updater) return true
 
+    // Yunzai 通用更新器内部仍按 #更新格式解析，用户入口保持 t/T 前缀。
     e.msg = `#${e.msg.includes('强制') ? '强制' : ''}更新${pluginName}`
     return updater.update()
   }
