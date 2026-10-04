@@ -118,6 +118,10 @@ export async function setConfigData(data, { Result }) {
         config.groupAdmin.groupAddNotice.openGroup = normalizeGroupSelectValues(config.groupAdmin.groupAddNotice.openGroup)
       }
 
+      if (config.groupAdmin.groupAddNotice?.skipVerifyGroups !== undefined) {
+        config.groupAdmin.groupAddNotice.skipVerifyGroups = normalizeGroupSelectValues(config.groupAdmin.groupAddNotice.skipVerifyGroups)
+      }
+
       if (Array.isArray(config.groupAdmin.groupVerify?.successMsgs)) {
         const successMsgs = {}
         for (const item of config.groupAdmin.groupVerify.successMsgs) {

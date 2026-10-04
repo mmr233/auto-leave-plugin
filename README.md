@@ -79,6 +79,10 @@ cd auto-leave-plugin && pnpm install
 | `t发起投票禁言 @用户` | 发起群投票 | 群成员 |
 | `t开启验证` | 开启本群入群验证 | 群管理 |
 | `t开启加群通知` | 开启本群加群申请通知 | 群管理 |
+| `t同意入群` | 引用加群申请通知，同意申请 | 主人、目标群群主或管理员 |
+| `t拒绝入群` | 引用加群申请通知，拒绝申请 | 主人、目标群群主或管理员 |
+| `t开启申请免验证` | 本群人工同意入群后跳过一次验证 | 群管理 |
+| `t关闭申请免验证` | 关闭本群人工审批后的免验证 | 群管理 |
 
 ### 插件更新
 | 指令 | 说明 | 权限 |
@@ -122,6 +126,8 @@ cd auto-leave-plugin && pnpm install
 - `groupAdmin.voteEnabled`: 启用群投票
 - `groupAdmin.verifyEnabled`: 启用入群验证；需同时开启 `groupAdmin.enabled`，并将群号加入 `groupAdmin.groupVerify.openGroup`
 - `groupAdmin.noticeEnabled`: 启用加群申请通知
+- `groupAdmin.groupAddNotice.openGroup`: 开启加群申请通知的群聊
+- `groupAdmin.groupAddNotice.skipVerifyGroups`: 人工同意后跳过一次入群验证的群聊，必须先开启对应群的加群申请通知
 - `groupAdmin.announceEnabled`: 启用群公告命令
 - `groupAdmin.scheduledMuteEnabled`: 启用定时禁言任务
 - `groupAdmin.blacklistRequestRejectEnabled`: 启用黑名单用户申请入群时自动拒绝，仅在白名单群聊和黑名单自动踢出开启时生效
@@ -139,6 +145,9 @@ cd auto-leave-plugin && pnpm install
 机器人收到群邀请时，会先按黑名单、白名单顺序处理，再按配置进行人数预检查和自动同意、自动拒绝、关闭不处理或人工审核。人工审核会向通知群和通知用户发送简洁文本，处理人可引用通知发送 `t确认加群` / `t拒绝加群`，也可直接发送 `t确认加群 群号` / `t拒绝加群 群号`。预检查失败转人工时，主人可以使用 `t强制同意加群 群号` 绕过检查；批准状态会在机器人进群事件中消费，避免本次进群再次触发人数退群。
 
 邀请白名单群用于邀请阶段自动同意；生效时也会视为白名单群，进群后跳过人数检查。白名单群管理里的群聊白名单是全局白名单入口，适合长期管理不会自动退群、违禁词管理等行为。
+
+### 群加群申请审批
+开启本群加群申请通知后，机器人会登记申请通知消息。群主、管理员或主人引用该通知发送 `t同意入群`，机器人会调用原申请的 `flag` 同意入群；发送 `t拒绝入群` 可拒绝申请。审批状态按 Bot、群聊和用户关联，并在处理或过期后失效。配置在 `groupAdmin.groupAddNotice.skipVerifyGroups` 中的群聊，人工同意后只跳过本次入群验证，未配置的群聊仍按正常入群验证流程处理。
 
 ### 白名单群管理
 白名单群聊不受上述退群条件影响，但启用了违禁词管理功能：

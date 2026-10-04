@@ -164,6 +164,7 @@ const DEFAULT_CONFIG = {
     },
     groupAddNotice: {
       openGroup: [],
+      skipVerifyGroups: [],
       msg: '收到加群申请'
     },
     title: {

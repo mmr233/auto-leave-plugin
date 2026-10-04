@@ -15,7 +15,10 @@ import {
 } from '../utils/groupAdmin.js'
 
 const verifySessions = new Map()
+const pendingGroupRequests = new Map()
+const approvedGroupRequests = new Map()
 const operators = ['+', '-']
+const GROUP_REQUEST_EXPIRE_MS = 10 * 60 * 1000
 let runtimeInited = false
 
 function getVerifyKey(groupId, userId) {
@@ -52,6 +55,105 @@ function isUserBlacklistActive(config) {
 
 function isUserBlacklisted(userId) {
   return getGroupAdminBlacklist().includes(Number(userId))
+}
+
+function getEventBotId(e) {
+  const bot = e?.bot || globalThis.Bot?.[e?.self_id] || globalThis.Bot
+  return String(e?.self_id || e?.bot?.uin || e?.bot?.self_id || bot?.uin || bot?.self_id || '')
+}
+
+function normalizeMessageId(value) {
+  if (value === undefined || value === null || value === '') {
+    return ''
+  }
+  return String(value)
+}
+
+function getSentMessageId(result) {
+  return normalizeMessageId(
+    result?.message_id ?? result?.messageId ?? result?.data?.message_id ?? result?.data?.messageId ?? result?.response?.message_id
+  )
+}
+
+function getRequestKey(request) {
+  return `${request.botId}:${request.flag || request.requestId}`
+}
+
+function getApprovedJoinKey(botId, groupId, userId) {
+  return `${botId}:${groupId}:${userId}`
+}
+
+function pruneGroupRequestStates() {
+  const now = Date.now()
+  for (const [key, request] of pendingGroupRequests.entries()) {
+    if (Number(request.expiresAt || 0) <= now) {
+      pendingGroupRequests.delete(key)
+    }
+  }
+  for (const [key, request] of approvedGroupRequests.entries()) {
+    if (Number(request.expiresAt || 0) <= now) {
+      approvedGroupRequests.delete(key)
+    }
+  }
+}
+
+function getQuotedMessageId(source) {
+  return normalizeMessageId(source?.message_id ?? source?.messageId ?? source?.id)
+}
+
+function rememberPendingGroupRequest(request) {
+  pruneGroupRequestStates()
+  pendingGroupRequests.set(getRequestKey(request), request)
+}
+
+function findPendingGroupRequest(e, source) {
+  pruneGroupRequestStates()
+  const botId = getEventBotId(e)
+  const groupId = String(e?.group_id ?? '')
+  const messageId = getQuotedMessageId(source)
+  if (!botId || !groupId || !messageId) {
+    return null
+  }
+
+  return [...pendingGroupRequests.values()]
+    .reverse()
+    .find(item => item.botId === botId && item.noticeGroupId === groupId && item.noticeMessageId === messageId) || null
+}
+
+function getEventMemberRole(e) {
+  const member = e?.member || {}
+  if (member.is_owner || member.role === 'owner') {
+    return 'owner'
+  }
+  if (member.is_admin || member.role === 'admin') {
+    return 'admin'
+  }
+  return member.role || 'member'
+}
+
+async function checkGroupRequestPermission(e, request) {
+  const config = getConfig()
+  if (e?.isMaster || getMasterIds(config).has(Number(e?.user_id))) {
+    return { ok: true, role: 'master' }
+  }
+
+  if (String(e?.group_id) === String(request.groupId)) {
+    const eventRole = getEventMemberRole(e)
+    if (eventRole === 'owner' || eventRole === 'admin') {
+      return { ok: true, role: eventRole }
+    }
+  }
+
+  const targetGroup = getGroup(e, request.groupId)
+  const info = await getGroupMemberInfo(e, request.groupId, e.user_id, targetGroup)
+  if (info?.role === 'owner' || info?.role === 'admin') {
+    return { ok: true, role: info.role }
+  }
+
+  return {
+    ok: false,
+    message: '权限不足，只有主人、目标群群主或管理员可以处理该申请'
+  }
 }
 
 function getRequestUserId(e) {
@@ -126,6 +228,83 @@ export function buildGroupRequestNotice(e, config, {
 
   const image = globalThis.segment?.image?.(`https://q1.qlogo.cn/g?b=qq&s=100&nk=${userId}`)
   return image ? [`${lines.join('\n')}\n`, image] : [lines.join('\n')]
+}
+
+export async function handleGroupRequestAction(e, source, approve = true) {
+  const request = findPendingGroupRequest(e, source)
+  if (!request) {
+    return {
+      ok: false,
+      message: '未找到对应的加群申请，请引用有效的申请通知'
+    }
+  }
+
+  const permission = await checkGroupRequestPermission(e, request)
+  if (!permission.ok) {
+    return permission
+  }
+
+  const targetGroup = getGroup(e, request.groupId)
+  const botRole = await getBotRole(e, request.groupId, targetGroup)
+  if (botRole !== 'admin' && botRole !== 'owner') {
+    return {
+      ok: false,
+      message: '处理失败：机器人不是目标群管理员或群主'
+    }
+  }
+
+  if (!approve) {
+    try {
+      await approveGroupRequest(e, request, false, '管理员拒绝加群申请')
+      pendingGroupRequests.delete(getRequestKey(request))
+      return {
+        ok: true,
+        message: `已拒绝加群申请\n申请人：${request.nickname || '未知用户'}\nQQ号：${request.userId}`
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        message: `拒绝申请失败：${err.message || String(err)}`
+      }
+    }
+  }
+
+  const config = getConfig()
+  const skipVerify = hasId(config.groupAdmin?.groupAddNotice?.skipVerifyGroups, request.groupId)
+  const approvedState = {
+    ...request,
+    skipVerify,
+    approvedAt: Date.now(),
+    expiresAt: Date.now() + GROUP_REQUEST_EXPIRE_MS
+  }
+  const joinKey = getApprovedJoinKey(request.botId, request.groupId, request.userId)
+  approvedGroupRequests.set(joinKey, approvedState)
+
+  try {
+    await approveGroupRequest(e, request, true)
+    pendingGroupRequests.delete(getRequestKey(request))
+    return {
+      ok: true,
+      message: `已同意加群申请\n申请人：${request.nickname || '未知用户'}\nQQ号：${request.userId}${skipVerify ? '\n本次入群将跳过验证' : ''}`
+    }
+  } catch (err) {
+    approvedGroupRequests.delete(joinKey)
+    return {
+      ok: false,
+      message: `同意申请失败：${err.message || String(err)}`
+    }
+  }
+}
+
+export function consumeApprovedGroupRequest(e) {
+  pruneGroupRequestStates()
+  const key = getApprovedJoinKey(getEventBotId(e), String(e?.group_id || ''), String(e?.user_id || ''))
+  const request = approvedGroupRequests.get(key)
+  if (!request) {
+    return null
+  }
+  approvedGroupRequests.delete(key)
+  return request
 }
 
 function toArray(value) {
@@ -298,6 +477,13 @@ export async function reverifyUser(e, userId) {
 }
 
 export async function handleGroupIncreaseForAdmin(e) {
+  const approvedRequest = consumeApprovedGroupRequest(e)
+  if (approvedRequest?.skipVerify) {
+    clearSession(e.group_id, e.user_id)
+    logger.info(`[自动退群] 用户 ${e.user_id} 通过人工审批入群，群 ${e.group_id} 跳过本次入群验证`)
+    return true
+  }
+
   const config = getConfig()
   const groupId = String(e.group_id || '')
   if (!isGroupAdminFeatureEnabled(config, 'verifyEnabled')) {
@@ -397,14 +583,47 @@ export async function handleGroupRequestForAdmin(e) {
   const [userProfile, inviterProfile] = await Promise.all([
     getRequestUserProfile(e, userId),
     inviterId !== undefined && String(inviterId) !== String(userId)
-      ? getRequestUserProfile({ ...e, user_id: inviterId }, inviterId)
+      ? getRequestUserProfile({ ...e, user_id: inviterId, nickname: '', sender: null, user: null }, inviterId)
       : Promise.resolve(null)
   ])
   const msg = buildGroupRequestNotice(e, config, {
     nickname: userProfile.nickname,
     inviterNickname: inviterProfile?.nickname || ''
   })
-  await e.bot?.pickGroup?.(Number(e.group_id))?.sendMsg?.(msg)
+  const group = getGroup(e, e.group_id) || e.bot?.pickGroup?.(Number(e.group_id))
+  if (!group?.sendMsg) {
+    logger.warn(`[自动退群] 无法发送加群申请通知：群 ${e.group_id}`)
+    return false
+  }
+
+  const sent = await group.sendMsg(msg)
+  const noticeMessageId = getSentMessageId(sent)
+  if (!noticeMessageId) {
+    logger.warn(`[自动退群] 加群申请通知未返回消息 ID，无法使用引用审批：群 ${e.group_id}`)
+    return true
+  }
+
+  const botId = getEventBotId(e)
+  const flag = String(e.flag || '').trim()
+  if (!flag) {
+    logger.warn(`[自动退群] 加群申请缺少 flag，无法使用引用审批：群 ${e.group_id}，用户 ${userId}`)
+    return true
+  }
+
+  rememberPendingGroupRequest({
+    requestId: `${botId}:${flag}`,
+    botId,
+    groupId: String(e.group_id),
+    noticeGroupId: String(e.group_id),
+    noticeMessageId,
+    userId: String(userId),
+    nickname: userProfile.nickname,
+    flag,
+    sub_type: e.sub_type || e.subType || 'add',
+    requestTime: Date.now(),
+    expiresAt: Date.now() + GROUP_REQUEST_EXPIRE_MS
+  })
+  logger.info(`[自动退群] 已登记加群申请：群 ${e.group_id}，用户 ${userId}，通知消息 ${noticeMessageId}`)
   return true
 }
 

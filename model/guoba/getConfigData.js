@@ -126,7 +126,8 @@ export async function getConfigData() {
       },
       groupAddNotice: {
         ...(config.groupAdmin?.groupAddNotice || {}),
-        openGroup: toGroupSelectValues(config.groupAdmin?.groupAddNotice?.openGroup)
+        openGroup: toGroupSelectValues(config.groupAdmin?.groupAddNotice?.openGroup),
+        skipVerifyGroups: toGroupSelectValues(config.groupAdmin?.groupAddNotice?.skipVerifyGroups)
       }
     },
     // 违禁词列表（数组格式，用于 GTags 组件）

@@ -1,7 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { GroupAdminService, GroupBannedWords, bannedWordMatchTypeMap, bannedWordPenaltyTypeMap } from '../model/groupAdminConfig.js'
-import { hasVerifySession, passVerify, reverifyUser, startVerifyForUser } from '../model/groupAdminRuntime.js'
+import { handleGroupRequestAction as processGroupRequestAction, hasVerifySession, passVerify, reverifyUser, startVerifyForUser } from '../model/groupAdminRuntime.js'
 import { addUsersToBlacklist } from '../utils/yunzaiConfig.js'
 import {
   TIME_UNIT,
@@ -103,6 +103,8 @@ export class GroupAdminCommands extends plugin {
         { reg: '^[tT]发通知', fnc: 'sendNotice' },
         { reg: '^[tT](设置)?定时(禁言|解禁)(.*)$|^[tT]定时禁言任务$|^[tT]取消定时(禁言|解禁)$', fnc: 'timeMute' },
         { reg: '^[tT]?(开启|关闭)加群通知$', fnc: 'handleGroupAdd' },
+        { reg: '^[tT](同意|拒绝)入群$', fnc: 'handleGroupRequestAction' },
+        { reg: '^[tT](开启|关闭)申请免验证$', fnc: 'toggleRequestVerify' },
         { reg: '^[tT]?(加|设|移)精$', fnc: 'essenceMessage' },
         { reg: autisticReg, fnc: 'autistic' }
       ]
@@ -492,6 +494,47 @@ export class GroupAdminCommands extends plugin {
     config.groupAdmin.groupAddNotice.openGroup = nextOpenGroups
     Config.saveConfig(config)
     await e.reply(`已${type === 'add' ? '开启' : '关闭'}「${e.group_id}」的加群申请通知`)
+    return true
+  }
+
+  async handleGroupRequestAction(e) {
+    if (!isGroupAdminFeatureEnabled('noticeEnabled')) return false
+    const source = await getQuotedMessage(e)
+    if (!source) {
+      await e.reply('请引用加群申请通知后，再发送 t同意入群 或 t拒绝入群')
+      return true
+    }
+
+    const approve = /同意/.test(getMessageText(e))
+    const result = await processGroupRequestAction(e, source, approve)
+    await e.reply(result.message, !result.ok)
+    return true
+  }
+
+  async toggleRequestVerify(e) {
+    if (!isGroupAdminFeatureEnabled('noticeEnabled')) return false
+    if (!await checkPermission(e, 'admin', 'admin')) return true
+
+    const config = getGroupConfig()
+    const openGroups = config.groupAdmin?.groupAddNotice?.openGroup || []
+    if (!hasConfiguredId(openGroups, e.group_id)) {
+      await e.reply('请先开启本群加群申请通知')
+      return true
+    }
+
+    const enable = /开启/.test(getMessageText(e))
+    const skipGroups = config.groupAdmin?.groupAddNotice?.skipVerifyGroups || []
+    const exists = hasConfiguredId(skipGroups, e.group_id)
+    if (exists === enable) {
+      await e.reply(`本群申请${enable ? '已' : '未'}设置为跳过入群验证`)
+      return true
+    }
+
+    config.groupAdmin.groupAddNotice.skipVerifyGroups = enable
+      ? [...new Set([...skipGroups, Number(e.group_id)])]
+      : skipGroups.filter(item => Number(item) !== Number(e.group_id))
+    Config.saveConfig(config)
+    await e.reply(`已${enable ? '开启' : '关闭'}本群审批后跳过入群验证`)
     return true
   }
 

@@ -293,6 +293,16 @@ export const groupAdminConfigSchema = [
     }
   },
   {
+    field: 'groupAdmin.groupAddNotice.skipVerifyGroups',
+    label: '审批后跳过验证群聊',
+    bottomHelpMessage: '这些群聊中，引用申请通知发送「t同意入群」后，本次入群将跳过入群验证；必须先开启加群申请通知。',
+    component: 'GSelectGroup',
+    componentProps: {
+      placeholder: '点击选择审批后跳过验证的群聊',
+      allowInput: true
+    }
+  },
+  {
     field: 'groupAdmin.groupAddNotice.msg',
     label: '通知前缀消息',
     component: 'Input',

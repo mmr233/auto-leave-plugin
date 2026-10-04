@@ -187,6 +187,97 @@ test('formats group request notices with labels and resolves applicant nickname'
   assert.equal(sentMessage.some(item => item?.type === 'image'), true)
 })
 
+test('approves quoted group requests and consumes skip-verification state once', async () => {
+  const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
+  fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })
+  fs.writeFileSync(runtimeConfigPath, JSON.stringify({
+    groupAdmin: {
+      enabled: true,
+      verifyEnabled: true,
+      noticeEnabled: true,
+      groupVerify: {
+        openGroup: [123456]
+      },
+      groupAddNotice: {
+        openGroup: [123456],
+        skipVerifyGroups: [123456],
+        msg: '收到加群申请'
+      }
+    }
+  }, null, 2))
+
+  let requestParams = null
+  const group = {
+    is_admin: true,
+    is_owner: false,
+    async sendMsg() {
+      return { message_id: 7001 }
+    }
+  }
+  const bot = {
+    self_id: '10001',
+    pickGroup() {
+      return group
+    },
+    async sendApi(action, params) {
+      if (action === 'get_stranger_info') {
+        return { data: { user_id: 99999, nickname: '待审批用户' } }
+      }
+      if (action === 'set_group_add_request') {
+        requestParams = params
+        return { data: { ok: true } }
+      }
+      throw new Error(`unexpected api: ${action}`)
+    }
+  }
+
+  const runtime = await import(
+    `${pathToFileURL(path.join(testRoot, 'model/groupAdminRuntime.js')).href}?approval-test=${Date.now()}`
+  )
+  await runtime.handleGroupRequestForAdmin({
+    bot,
+    self_id: '10001',
+    request_type: 'group',
+    sub_type: 'add',
+    group_id: 123456,
+    user_id: 99999,
+    flag: 'request-flag-1',
+    comment: '请批准我入群'
+  })
+
+  const result = await runtime.handleGroupRequestAction({
+    bot,
+    self_id: '10001',
+    group_id: 123456,
+    user_id: 55555,
+    member: { role: 'admin' }
+  }, { message_id: 7001 }, true)
+
+  assert.equal(result.ok, true)
+  assert.match(result.message, /跳过验证/)
+  assert.equal(requestParams.flag, 'request-flag-1')
+  assert.equal(requestParams.sub_type, 'add')
+  assert.equal(requestParams.approve, true)
+
+  const increaseEvent = {
+    bot,
+    self_id: '10001',
+    group_id: 123456,
+    user_id: 99999
+  }
+  assert.equal(await runtime.handleGroupIncreaseForAdmin(increaseEvent), true)
+  assert.equal(runtime.consumeApprovedGroupRequest(increaseEvent), null)
+
+  const repeated = await runtime.handleGroupRequestAction({
+    bot,
+    self_id: '10001',
+    group_id: 123456,
+    user_id: 55555,
+    member: { role: 'admin' }
+  }, { message_id: 7001 }, true)
+  assert.equal(repeated.ok, false)
+})
+
 test('does not treat CQ at user IDs as mute duration', () => {
   const parsed = groupAdminUtils.parseMuteCommand({
     raw_message: 't禁言 [CQ:at,qq=4019146645] 5分钟',
