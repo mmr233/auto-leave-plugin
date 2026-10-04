@@ -103,6 +103,33 @@ export function getMessageText(e) {
   return String(e?.raw_message || e?.msg || '').trim()
 }
 
+const MUTE_NUM_REG = '[零一壹二两三四五六七八九十百千万亿\\d]+'
+const MUTE_UNIT_REG = Object.keys(TIME_UNIT).sort((a, b) => b.length - a.length).join('|')
+
+export function parseMuteCommand(e) {
+  const text = getMessageText(e)
+  const atIds = extractAtIds(e).map(String)
+  const explicitUser = text.match(/^[tT]禁言\s*(\d{5,})/)?.[1]
+  const target = atIds[0] || explicitUser || ''
+  let tail = text.replace(/^[tT]禁言/, '').trim()
+
+  // OneBot raw_message may include CQ at segments; they are targets, not durations.
+  tail = tail.replace(/\[CQ:at,[^\]]*\]/gi, ' ')
+  for (const userId of atIds) {
+    tail = tail.replace(new RegExp(`(^|\\s)${userId}(?=\\s|$)`, 'g'), ' ')
+  }
+  if (explicitUser && !atIds.length && tail.startsWith(explicitUser)) {
+    tail = tail.slice(explicitUser.length).trim()
+  }
+
+  const durationMatch = tail.match(new RegExp(`(${MUTE_NUM_REG})\\s*(${MUTE_UNIT_REG})?`))
+  return {
+    target,
+    time: translateChinaNum(durationMatch?.[1] || 5) || 5,
+    unit: durationMatch?.[2] || '分'
+  }
+}
+
 export function extractAtIds(e) {
   const message = Array.isArray(e?.message) ? e.message : []
   const ids = message

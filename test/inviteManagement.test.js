@@ -129,6 +129,20 @@ test('extracts multiple mentioned users', () => {
   assert.deepEqual(ids, [90009, 80008])
 })
 
+test('does not treat CQ at user IDs as mute duration', () => {
+  const parsed = groupAdminUtils.parseMuteCommand({
+    raw_message: 't禁言 [CQ:at,qq=4019146645] 5分钟',
+    message: [
+      { type: 'text', text: 't禁言 ' },
+      { type: 'at', qq: '4019146645' },
+      { type: 'text', text: ' 5分钟' }
+    ]
+  })
+  assert.equal(String(parsed.target), '4019146645')
+  assert.equal(parsed.time, 5)
+  assert.equal(parsed.unit, '分钟')
+})
+
 test('group verification runtime registers listeners and accepts a correct answer', async () => {
   const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
   fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })
@@ -207,4 +221,27 @@ test('group verification runtime registers listeners and accepts a correct answe
   })
   assert.equal(runtime.hasVerifySession(123456, 99999), false)
   assert.ok(replies.some(message => message === '验证成功'))
+
+  fs.writeFileSync(runtimeConfigPath, JSON.stringify({
+    groupAdmin: {
+      enabled: false,
+      verifyEnabled: true,
+      scheduledMuteEnabled: false,
+      groupVerify: {
+        openGroup: [123456],
+        successMsgs: { 0: '验证成功' },
+        mode: '精确',
+        times: 3,
+        remindAtLastMinute: false,
+        time: 30,
+        range: { min: 10, max: 11 },
+        delayTime: 0
+      }
+    }
+  }, null, 2))
+  await runtime.handleGroupIncreaseForAdmin({
+    ...event,
+    user_id: 88888
+  })
+  assert.equal(runtime.hasVerifySession(123456, 88888), false)
 })

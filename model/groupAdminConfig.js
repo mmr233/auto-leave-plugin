@@ -385,6 +385,9 @@ export class GroupAdminService {
 
     const unitKey = String(unit || '秒').toUpperCase?.() ? String(unit || '秒').toUpperCase() : String(unit || '秒')
     const seconds = Math.max(0, Number(time) * (TIME_UNIT[unitKey] ?? TIME_UNIT[unit] ?? 60))
+    if (!Number.isFinite(seconds) || seconds > 30 * 24 * 60 * 60) {
+      throw new Error('禁言时长不能超过30天')
+    }
     const whiteUsers = (groupConfig.groupAdmin?.whiteQQ || []).map(item => Number(item))
     const masters = new Set([
       ...(groupConfig.masterQQ || []),

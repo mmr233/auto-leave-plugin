@@ -116,7 +116,7 @@ cd auto-leave-plugin && pnpm install
 - `inviteManagement.notifyMasterOnPrecheckReject`: 预检查失败时是否私聊通知主人
 
 ### 群管配置
-- `groupAdmin.enabled`: 启用群管模块，默认关闭，避免和其他群管插件冲突
+- `groupAdmin.enabled`: 启用群管命令、群违禁词、投票、申请通知和群公告，默认关闭，避免和其他群管插件冲突
 - `groupAdmin.commandsEnabled`: 启用基础群管命令
 - `groupAdmin.bannedWordsEnabled`: 启用群级违禁词
 - `groupAdmin.voteEnabled`: 启用群投票

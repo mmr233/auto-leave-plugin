@@ -224,7 +224,11 @@ export async function reverifyUser(e, userId) {
 
 export async function handleGroupIncreaseForAdmin(e) {
   const config = getConfig()
+  const groupId = String(e.group_id || '')
   if (!isGroupAdminFeatureEnabled(config, 'verifyEnabled')) {
+    if (config.groupAdmin?.verifyEnabled === true && config.groupAdmin?.enabled !== true) {
+      logger.warn(`[自动退群] 入群验证跳过：群管总开关未开启，群 ${groupId}`)
+    }
     return false
   }
   const verifyConfig = config.groupAdmin?.groupVerify || {}
@@ -235,24 +239,33 @@ export async function handleGroupIncreaseForAdmin(e) {
   }
 
   if (!hasId(verifyConfig.openGroup, e.group_id)) {
+    logger.info(`[自动退群] 入群验证跳过：群 ${groupId} 未加入开启验证群列表`)
     return false
   }
 
   const botRole = await getBotRole(e, e.group_id, e.group)
   if (botRole !== 'admin' && botRole !== 'owner') {
+    logger.warn(`[自动退群] 入群验证跳过：机器人在群 ${groupId} 中不是管理员或群主，当前角色 ${botRole}`)
     return false
   }
 
   if (getMasterIds(config).has(Number(e.user_id))) {
+    logger.info(`[自动退群] 入群验证跳过：用户 ${e.user_id} 是主人`)
     return false
   }
   if (hasId(config.groupAdmin?.whiteQQ, e.user_id)) {
+    logger.info(`[自动退群] 入群验证跳过：用户 ${e.user_id} 在群管白名单`)
     return false
   }
 
   await sleep(Number(verifyConfig.delayTime ?? 2) * 1000)
-  await startVerifyForUser(e, e.user_id, e.group_id)
-  return true
+  const started = await startVerifyForUser(e, e.user_id, e.group_id)
+  if (started) {
+    logger.info(`[自动退群] 已触发入群验证：群 ${groupId}，用户 ${e.user_id}`)
+  } else {
+    logger.warn(`[自动退群] 入群验证启动失败：群 ${groupId}，用户 ${e.user_id}`)
+  }
+  return started
 }
 
 export async function handleGroupDecreaseForAdmin(e) {
@@ -349,5 +362,6 @@ export function initGroupAdminRuntime() {
   })
 
   runtimeInited = true
+  logger.info('[自动退群] 群管运行时监听已注册：入群验证、加群申请、群禁言和群成员事件')
   return true
 }

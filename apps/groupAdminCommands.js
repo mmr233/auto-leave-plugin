@@ -16,6 +16,7 @@ import {
   kickGroupMember,
   muteGroupMember,
   normalizeId,
+  parseMuteCommand,
   recallGroupMessage,
   sendForwardMsg,
   sendGroupNotice,
@@ -27,7 +28,7 @@ import {
 } from '../utils/groupAdmin.js'
 
 const Numreg = '[零一壹二两三四五六七八九十百千万亿\\d]+'
-const TimeUnitReg = Object.keys(TIME_UNIT).join('|')
+const TimeUnitReg = Object.keys(TIME_UNIT).sort((a, b) => b.length - a.length).join('|')
 const noactiveReg = new RegExp(`^[tT](查看|清理|获取)(${Numreg})个?(${TimeUnitReg})(?:没|未)发言的人(第(${Numreg})页)?$`)
 const autisticReg = new RegExp(`^[tT]?我要(自闭|禅定)(${Numreg})?个?(${TimeUnitReg})?$`, 'i')
 
@@ -45,25 +46,6 @@ async function withForwardReply(e, messages, title) {
 
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function parseMuteCommand(e) {
-  const text = getMessageText(e)
-  const atIds = extractAtIds(e)
-  const explicitUser = text.match(/^[tT]禁言\s*(\d{5,})/)?.[1]
-  const target = atIds[0] || explicitUser || ''
-  let tail = text.replace(/^[tT]禁言/, '').trim()
-
-  if (explicitUser && tail.startsWith(explicitUser)) {
-    tail = tail.slice(explicitUser.length).trim()
-  }
-
-  const durationMatch = tail.match(new RegExp(`(${Numreg})\\s*(${TimeUnitReg})?`))
-  return {
-    target,
-    time: translateChinaNum(durationMatch?.[1] || 5) || 5,
-    unit: durationMatch?.[2] || '分'
-  }
 }
 
 function isGroupAdminFeatureEnabled(key = '', config = getGroupConfig()) {
