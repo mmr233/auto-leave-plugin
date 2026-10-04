@@ -67,6 +67,38 @@ export function getUserBlacklist() {
   }
 }
 
+export function normalizeUserIds(userIds) {
+  const values = Array.isArray(userIds) ? userIds : [userIds]
+  return [...new Set(values
+    .map(item => Number(String(item ?? '').trim()))
+    .filter(item => Number.isInteger(item) && item > 0)
+  )]
+}
+
+export function addUsersToBlacklist(userIds, reason = '') {
+  try {
+    const targets = normalizeUserIds(userIds)
+    const current = normalizeUserIds(getUserBlacklist())
+    const currentSet = new Set(current)
+    const added = targets.filter(userId => !currentSet.has(userId))
+    const existing = targets.filter(userId => currentSet.has(userId))
+
+    if (added.length === 0) {
+      return { ok: true, added: [], existing }
+    }
+
+    if (!saveUserBlacklist([...current, ...added])) {
+      return { ok: false, added: [], existing, failed: added }
+    }
+
+    logger.warn(`[自动退群] 批量添加用户黑名单 ${added.join('、')}，原因: ${reason}`)
+    return { ok: true, added, existing }
+  } catch (err) {
+    logger.error('[自动退群] 批量添加用户到黑名单失败:', err)
+    return { ok: false, added: [], existing: [], failed: normalizeUserIds(userIds) }
+  }
+}
+
 /**
  * 保存用户黑名单
  */
@@ -74,6 +106,11 @@ export function saveUserBlacklist(blackUsers) {
   try {
     const yunzaiConfigPath = getExistingConfigPath()
     let config = {}
+
+    const configDir = path.dirname(yunzaiConfigPath)
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true })
+    }
 
     if (fs.existsSync(yunzaiConfigPath)) {
       const yamlContent = fs.readFileSync(yunzaiConfigPath, 'utf8')
@@ -111,24 +148,11 @@ export function saveUserBlacklist(blackUsers) {
  * 添加用户到黑名单
  */
 export function addUserToBlacklist(userId, reason = '') {
-  try {
-    const blackUsers = getUserBlacklist()
-    const userIdNum = parseInt(userId)
-
-    if (!blackUsers.includes(userIdNum)) {
-      blackUsers.push(userIdNum)
-      if (saveUserBlacklist(blackUsers)) {
-        logger.warn(`[自动退群] 用户 ${userId} 已添加到黑名单，原因: ${reason}`)
-        return true
-      }
-    } else {
-      logger.info(`[自动退群] 用户 ${userId} 已在黑名单中`)
-    }
-    return false
-  } catch (err) {
-    logger.error('[自动退群] 添加用户到黑名单失败:', err)
-    return false
+  const result = addUsersToBlacklist([userId], reason)
+  if (result.existing.length > 0) {
+    logger.info(`[自动退群] 用户 ${userId} 已在黑名单中`)
   }
+  return result.added.length > 0
 }
 
 /**

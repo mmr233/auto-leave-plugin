@@ -174,7 +174,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.approvedGroups',
     label: '已批准群（一次性）',
-    bottomHelpMessage: '人工同意或主人强制放行后自动维护；机器人进群并跳过本次人数检查后会自动移除',
+    bottomHelpMessage: '兼容旧版放行列表；新的人工批准状态按 Bot 隔离，并在进群消费或过期后清理',
     component: 'GSelectGroup',
     componentProps: {
       placeholder: '点击选择已批准群，可手动输入',

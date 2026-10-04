@@ -34,9 +34,9 @@ cd auto-leave-plugin && pnpm install
 ### 黑名单管理
 | 指令 | 说明 | 权限 |
 |------|------|------|
-| `t拉黑 [群号]` | 添加群到黑名单 | 主人 |
-| `t取消拉黑 [群号]` | 从黑名单移除 | 主人 |
-| `t黑名单` | 查看黑名单列表 | 主人 |
+| `t拉黑群 [群号]` | 添加群聊到黑名单 | 主人 |
+| `t取消拉黑群 [群号]` | 从群聊黑名单移除 | 主人 |
+| `t群黑名单` | 查看群聊黑名单列表 | 主人 |
 
 ### 违禁词管理
 | 指令 | 说明 | 权限 |
@@ -48,7 +48,8 @@ cd auto-leave-plugin && pnpm install
 ### 用户黑名单管理
 | 指令 | 说明 | 权限 |
 |------|------|------|
-| `t拉黑用户 QQ号` | 添加用户到黑名单 | 主人 |
+| `t拉黑用户 QQ号... / @用户...` | 添加一个或多个用户到黑名单 | 主人 |
+| `t批量拉黑 QQ号...` | 一次添加多个用户到黑名单，也支持多个 @用户 | 主人 |
 | `t取消拉黑用户 QQ号` | 从用户黑名单移除 | 主人 |
 | `t用户黑名单` | 查看用户黑名单列表 | 主人 |
 
@@ -73,6 +74,7 @@ cd auto-leave-plugin && pnpm install
 | `t禁言 @用户 5分钟` | 禁言群成员 | 群管理 |
 | `t踢 @用户` | 踢出群成员 | 群管理 |
 | `t踢黑 @用户` | 踢出并写入自动退群用户黑名单，仅白名单群聊可用 | 群管理 |
+| `t批量踢黑 QQ号...` | 批量踢出并写入用户黑名单，仅白名单群聊可用 | 群管理 |
 | `t新增模糊禁违禁词 内容` | 添加群级违禁词 | 群管理 |
 | `t发起投票禁言 @用户` | 发起群投票 | 群成员 |
 | `t开启验证` | 开启本群入群验证 | 群管理 |
@@ -107,7 +109,7 @@ cd auto-leave-plugin && pnpm install
 - `inviteManagement.notifyUsers`: 审核通知用户，锅巴中可从好友列表选择
 - `inviteManagement.blackGroups`: 邀请黑名单群
 - `inviteManagement.whiteGroups`: 邀请白名单群，会自动同意邀请，并在白名单判断中生效
-- `inviteManagement.approvedGroups`: 已人工批准或主人强制放行的群，一次进群后自动移除
+- `inviteManagement.approvedGroups`: 兼容旧版的一次性放行列表；新批准状态会按 Bot 隔离并自动过期
 - `inviteManagement.precheckMemberCount`: 是否在同意普通邀请前检查群成员数量
 - `inviteManagement.precheckMode`: 预检查模式，`reject` 判定低于最低人数为失败，`warn` 仅提示
 - `inviteManagement.precheckFailureAction`: 预检查失败时转人工、直接拒绝或继续普通规则

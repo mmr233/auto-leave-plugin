@@ -45,6 +45,16 @@ if (fs.existsSync(appsDir)) {
 }
 
 const listenerReady = initEventListener()
+if (!listenerReady) {
+  let attempts = 0
+  const listenerRetry = setInterval(() => {
+    attempts++
+    if (initEventListener() || attempts >= 60) {
+      clearInterval(listenerRetry)
+    }
+  }, 1000)
+  listenerRetry.unref?.()
+}
 
 const loadDuration = Date.now() - loadStartTime
 logger.info('-------------------------')

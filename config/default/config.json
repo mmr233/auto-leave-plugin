@@ -103,6 +103,7 @@
     "whiteGroups": [],
     "pendingRequests": [],
     "approvedGroups": [],
+    "approvedGroupStates": [],
     "precheckMemberCount": true,
     "precheckMode": "reject",
     "precheckFailureAction": "manual",

@@ -1,5 +1,11 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { addUserToBlacklist, removeUserFromBlacklist, getUserBlacklist } from '../utils/yunzaiConfig.js'
+import { extractAtIds } from '../utils/groupAdmin.js'
+import {
+  addUsersToBlacklist,
+  normalizeUserIds,
+  removeUserFromBlacklist,
+  getUserBlacklist
+} from '../utils/yunzaiConfig.js'
 
 /**
  * 用户黑名单管理
@@ -13,8 +19,12 @@ export class UserBlacklistHandler extends plugin {
       priority: -1000,
       rule: [
         {
-          reg: '^[tT]拉黑用户\\s*(\\d+)?$',
+          reg: '^[tT]拉黑用户(?:\\s+.*)?$',
           fnc: 'addUserBlacklist'
+        },
+        {
+          reg: '^[tT]批量拉黑(?:\\s+.*)?$',
+          fnc: 'addUsersBlacklist'
         },
         {
           reg: '^[tT]取消拉黑用户\\s*(\\d+)?$',
@@ -34,26 +44,52 @@ export class UserBlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]拉黑用户\s*(\d+)?$/)
-    let userId = match?.[1]
-
-    // 如果没有指定用户ID且消息中有@用户，获取被@的用户
-    if (!userId && e.at) {
-      userId = e.at
-    }
-
-    if (!userId) {
-      await e.reply('请指定要拉黑的用户QQ号或@用户')
+    const text = String(e.msg || e.raw_message || '')
+    const numericIds = text.replace(/^[tT]拉黑用户/, '').match(/\d+/g) || []
+    const userIds = normalizeUserIds([...extractAtIds(e), ...numericIds])
+    if (userIds.length === 0) {
+      await e.reply('请指定要拉黑的用户QQ号或@用户，可一次填写多个')
       return true
     }
 
-    const success = addUserToBlacklist(userId, '主人手动添加')
-    if (success) {
-      await e.reply(`成功将用户 ${userId} 添加到黑名单`)
-    } else {
-      await e.reply('添加用户黑名单失败或用户已在黑名单中')
+    const result = addUsersToBlacklist(userIds, '主人手动添加')
+    if (!result.ok) {
+      await e.reply(`添加用户黑名单失败：${result.failed?.join('、') || userIds.join('、')}`)
+      return true
     }
 
+    if (userIds.length === 1) {
+      await e.reply(result.added.length
+        ? `成功将用户 ${userIds[0]} 添加到黑名单`
+        : `用户 ${userIds[0]} 已在黑名单中`)
+    } else {
+      await e.reply(`批量拉黑完成：新增 ${result.added.length} 个${result.existing.length ? `，已在黑名单 ${result.existing.length} 个` : ''}`)
+    }
+
+    return true
+  }
+
+  async addUsersBlacklist(e) {
+    if (!e.isMaster) {
+      await e.reply('只有主人才能操作用户黑名单')
+      return true
+    }
+
+    const text = String(e.msg || e.raw_message || '')
+    const numericIds = text.replace(/^[tT]批量拉黑/, '').match(/\d+/g) || []
+    const userIds = normalizeUserIds([...extractAtIds(e), ...numericIds])
+    if (userIds.length === 0) {
+      await e.reply('请指定要拉黑的用户QQ号或@用户，可一次填写多个')
+      return true
+    }
+
+    const result = addUsersToBlacklist(userIds, '主人批量添加')
+    if (!result.ok) {
+      await e.reply(`批量拉黑失败：${result.failed?.join('、') || userIds.join('、')}`)
+      return true
+    }
+
+    await e.reply(`批量拉黑完成：新增 ${result.added.length} 个${result.existing.length ? `，已在黑名单 ${result.existing.length} 个` : ''}`)
     return true
   }
 

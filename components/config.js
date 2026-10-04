@@ -30,6 +30,7 @@ const DEFAULT_INVITE_MANAGEMENT = {
   whiteGroups: [],
   pendingRequests: [],
   approvedGroups: [],
+  approvedGroupStates: [],
   precheckMemberCount: true,
   precheckMode: 'reject',
   precheckFailureAction: 'manual',

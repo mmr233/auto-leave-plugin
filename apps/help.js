@@ -45,7 +45,7 @@ function buildHelpButtons() {
   return segment.button(
     [
       { text: '白名单', input: 'T白名单' },
-      { text: '黑名单', input: 'T黑名单' },
+      { text: '群黑名单', input: 'T群黑名单' },
       { text: '违禁词', input: 'T违禁词列表' }
     ],
     [
@@ -164,15 +164,15 @@ export class AutoLeaveHelp extends plugin {
           },
           {
             icon: 13,
-            title: '拉黑 / 取消拉黑',
+            title: '拉黑群 / 取消拉黑群',
             desc: '把群加入或移出黑名单',
-            command: 'T拉黑 [群号] / T取消拉黑 [群号]'
+            command: 'T拉黑群 [群号] / T取消拉黑群 [群号]'
           },
           {
             icon: 14,
-            title: '查看黑名单',
+            title: '查看群黑名单',
             desc: '查看全部黑名单群',
-            command: 'T黑名单'
+            command: 'T群黑名单'
           }
         ]
       },
@@ -243,14 +243,20 @@ export class AutoLeaveHelp extends plugin {
           {
             icon: 31,
             title: '拉黑用户 / 取消拉黑用户',
-            desc: '支持直接填 QQ 或 @用户',
-            command: 'T拉黑用户 123456 / T取消拉黑用户 123456'
+            desc: '支持直接填 QQ 或 @用户，也支持批量拉黑',
+            command: 'T拉黑用户 123456 / T批量拉黑 123456 234567 / T取消拉黑用户 123456'
           },
           {
             icon: 32,
             title: '查看用户黑名单',
             desc: '查看当前黑名单用户',
             command: 'T用户黑名单'
+          },
+          {
+            icon: 34,
+            title: '批量踢黑',
+            desc: '白名单群中批量踢出并加入用户黑名单',
+            command: 't批量踢黑 123456 234567'
           },
           {
             icon: 33,

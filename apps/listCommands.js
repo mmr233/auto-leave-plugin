@@ -104,15 +104,15 @@ export class BlacklistHandler extends plugin {
       priority: -1000,
       rule: [
         {
-          reg: '^[tT]拉黑\\s*(\\d+)?$',
+          reg: '^[tT]拉黑群\\s*(\\d+)?$',
           fnc: 'addBlacklist'
         },
         {
-          reg: '^[tT]黑名单$',
+          reg: '^[tT]群黑名单$',
           fnc: 'showBlacklist'
         },
         {
-          reg: '^[tT]取消拉黑\\s*(\\d+)?$',
+          reg: '^[tT]取消拉黑群\\s*(\\d+)?$',
           fnc: 'removeBlacklist'
         }
       ]
@@ -125,7 +125,7 @@ export class BlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]拉黑\s*(\d+)?$/)
+    const match = e.msg.match(/^[tT]拉黑群\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {
@@ -163,7 +163,7 @@ export class BlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]取消拉黑\s*(\d+)?$/)
+    const match = e.msg.match(/^[tT]取消拉黑群\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {

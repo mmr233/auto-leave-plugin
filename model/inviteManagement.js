@@ -68,6 +68,17 @@ function firstMemberCount(...values) {
   return null
 }
 
+export function getBotId(botOrEvent) {
+  const bot = getBot(botOrEvent)
+  return toId(
+    bot?.uin ||
+    bot?.self_id ||
+    botOrEvent?.self_id ||
+    botOrEvent?.bot?.uin ||
+    botOrEvent?.bot?.self_id
+  )
+}
+
 function collectIds(value, keys = ['groupId', 'groupIdInput', 'groupIds', 'manageGroupId', 'userId', 'id']) {
   if (value === undefined || value === null || value === '') {
     return []
@@ -127,6 +138,7 @@ function normalizePendingRequests(value) {
     const requestTime = Number(item.requestTime || item.time || Date.now())
     return {
       requestId: String(item.requestId || `${groupId}-${flag || requestTime}`).trim(),
+      botId: toId(item.botId ?? item.self_id ?? item.selfId),
       groupId,
       groupName: String(item.groupName || item.group_name || '未知群名'),
       userId,
@@ -139,9 +151,27 @@ function normalizePendingRequests(value) {
       precheckStatus: String(item.precheckStatus || '').trim(),
       precheckReason: String(item.precheckReason || '').trim(),
       precheckAction: String(item.precheckAction || '').trim(),
+      status: String(item.status || (item.precheckStatus === 'failed' ? 'precheck_failed' : 'pending')).trim(),
       requestTime
     }
   }).filter(item => item.groupId && item.flag)
+}
+
+export function normalizeApprovedGroupStates(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.map(item => {
+    const isObject = item && typeof item === 'object'
+    return {
+      groupId: toId(isObject ? (item.groupId ?? item.group_id ?? item.id) : item),
+      botId: toId(isObject ? (item.botId ?? item.self_id ?? item.selfId) : ''),
+      approvedAt: Number(isObject ? item.approvedAt : 0) || 0,
+      expiresAt: Number(isObject ? item.expiresAt : 0) || 0,
+      source: String(isObject ? item.source || 'manual' : 'legacy').trim()
+    }
+  }).filter(item => item.groupId)
 }
 
 export function getInviteConfig(rootConfig = Config.loadConfig()) {
@@ -160,6 +190,7 @@ export function getInviteConfig(rootConfig = Config.loadConfig()) {
     whiteGroups: normalizeIdList(raw.whiteGroups),
     pendingRequests: normalizePendingRequests(raw.pendingRequests),
     approvedGroups: normalizeIdList(raw.approvedGroups),
+    approvedGroupStates: normalizeApprovedGroupStates(raw.approvedGroupStates),
     precheckMemberCount: raw.precheckMemberCount !== false,
     precheckMode: Object.values(PRECHECK_MODE).includes(String(raw.precheckMode))
       ? String(raw.precheckMode)
@@ -243,7 +274,9 @@ export class InviteManagementService {
   constructor(e = null) {
     this.e = e
     this.bot = getBot(e)
+    this.botId = getBotId(e)
     this.reload()
+    this.migrateLegacyApprovedGroups()
   }
 
   reload() {
@@ -251,8 +284,42 @@ export class InviteManagementService {
     this.config = getInviteConfig(this.rootConfig)
   }
 
+  migrateLegacyApprovedGroups() {
+    if (!this.botId || this.config.approvedGroups.length === 0) {
+      return false
+    }
+
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const states = normalizeApprovedGroupStates(rootConfig.inviteManagement.approvedGroupStates)
+    const now = Date.now()
+    for (const groupId of normalizeIdList(rootConfig.inviteManagement.approvedGroups)) {
+      if (states.some(item => item.groupId === groupId && item.botId === this.botId)) {
+        continue
+      }
+      states.push({
+        groupId,
+        botId: this.botId,
+        approvedAt: now,
+        expiresAt: now + this.approvedGroupExpireMs,
+        source: 'legacy'
+      })
+    }
+
+    rootConfig.inviteManagement.approvedGroupStates = states
+    rootConfig.inviteManagement.approvedGroups = []
+    Config.saveConfig(rootConfig)
+    this.reload()
+    logger.info(`[自动退群] 已将 ${states.length} 条旧版邀请批准状态迁移到 Bot ${this.botId}`)
+    return true
+  }
+
   get expireMs() {
     return this.config.requestExpireMinutes * 60 * 1000
+  }
+
+  get approvedGroupExpireMs() {
+    return Math.max(this.expireMs, 30 * 60 * 1000)
   }
 
   get inviteMessages() {
@@ -288,9 +355,11 @@ export class InviteManagementService {
   createRequestInfo(e, groupInfo, userInfo) {
     const groupId = toId(e.group_id ?? e.groupId)
     const userId = toId(e.user_id ?? e.operator_id ?? e.inviter_id)
-    const requestId = `${Date.now().toString(36)}${String(groupId).slice(-4)}`
+    const flagPart = String(e.flag || '').replace(/[^a-z0-9]/gi, '').slice(-8)
+    const requestId = `${this.botId || 'bot'}-${Date.now().toString(36)}-${flagPart || String(groupId).slice(-4)}`
     return {
       requestId,
+      botId: this.botId,
       groupId,
       groupName: groupInfo.groupName || '未知群名',
       userId,
@@ -299,6 +368,7 @@ export class InviteManagementService {
       precheckStatus: '',
       precheckReason: '',
       precheckAction: '',
+      status: 'pending',
       flag: String(e.flag || ''),
       subType: String(e.sub_type || e.subType || 'invite'),
       msgIds: [],
@@ -561,17 +631,33 @@ export class InviteManagementService {
     return pending.filter(item => now - Number(item.requestTime || 0) <= this.expireMs)
   }
 
+  belongsToCurrentBot(item) {
+    return !item.botId || (!!this.botId && String(item.botId) === String(this.botId))
+  }
+
+  getPendingRequests() {
+    return this.config.pendingRequests.filter(item => this.belongsToCurrentBot(item))
+  }
+
   savePendingRequests(pending) {
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
-    rootConfig.inviteManagement.pendingRequests = pending
+    const allPending = normalizePendingRequests(rootConfig.inviteManagement.pendingRequests)
+    const otherBotPending = allPending.filter(item => !this.belongsToCurrentBot(item))
+    const currentPending = pending.map(item => ({
+      ...item,
+      botId: item.botId || this.botId
+    }))
+    rootConfig.inviteManagement.pendingRequests = [...otherBotPending, ...currentPending]
     Config.saveConfig(rootConfig)
     this.reload()
   }
 
   cleanExpiredPendingRequests() {
-    const pending = this.filterPending(this.config.pendingRequests)
-    if (pending.length !== this.config.pendingRequests.length) {
+    const currentPending = this.getPendingRequests()
+    const pending = this.filterPending(currentPending)
+    const needsBotMigration = currentPending.some(item => !item.botId && this.botId)
+    if (pending.length !== currentPending.length || needsBotMigration) {
       this.savePendingRequests(pending)
     }
     return pending
@@ -585,11 +671,15 @@ export class InviteManagementService {
       pending.shift()
     }
 
-    pending.push(request)
+    pending.push({
+      ...request,
+      botId: request.botId || this.botId,
+      status: request.status || (request.precheckStatus === 'failed' ? 'precheck_failed' : 'pending')
+    })
     this.savePendingRequests(pending)
   }
 
-  findPendingRequest({ msgId = '', groupId = '', requestId = '' } = {}) {
+  findPendingRequests({ msgId = '', groupId = '', requestId = '' } = {}) {
     const pending = this.cleanExpiredPendingRequests()
     const msg = String(msgId || '')
     const group = String(groupId || '')
@@ -602,7 +692,11 @@ export class InviteManagementService {
       return false
     })
 
-    return matched.sort((a, b) => Number(b.requestTime) - Number(a.requestTime))[0] || null
+    return matched.sort((a, b) => Number(b.requestTime) - Number(a.requestTime))
+  }
+
+  findPendingRequest(criteria = {}) {
+    return this.findPendingRequests(criteria)[0] || null
   }
 
   removePendingRequest(requestId) {
@@ -611,8 +705,36 @@ export class InviteManagementService {
     this.savePendingRequests(pending)
   }
 
+  cleanExpiredApprovedGroups() {
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const states = normalizeApprovedGroupStates(rootConfig.inviteManagement.approvedGroupStates)
+    const now = Date.now()
+    const next = states.filter(item => !item.expiresAt || item.expiresAt > now)
+    if (next.length !== states.length) {
+      rootConfig.inviteManagement.approvedGroupStates = next
+      Config.saveConfig(rootConfig)
+      this.reload()
+    }
+    return next
+  }
+
+  isCurrentBotApprovedState(item) {
+    return !item.botId || (!!this.botId && String(item.botId) === String(this.botId))
+  }
+
+  getApprovedGroupIds() {
+    this.cleanExpiredApprovedGroups()
+    return unique([
+      ...this.config.approvedGroups,
+      ...this.config.approvedGroupStates
+        .filter(item => this.isCurrentBotApprovedState(item))
+        .map(item => item.groupId)
+    ])
+  }
+
   isApprovedGroup(groupId) {
-    return this.config.approvedGroups.includes(String(groupId))
+    return this.getApprovedGroupIds().includes(String(groupId))
   }
 
   markApprovedGroup(groupId) {
@@ -621,19 +743,30 @@ export class InviteManagementService {
       return false
     }
 
+    this.cleanExpiredApprovedGroups()
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
-    const list = normalizeIdList(rootConfig.inviteManagement.approvedGroups)
-    if (!list.includes(target)) {
-      list.push(target)
-      rootConfig.inviteManagement.approvedGroups = list
+    const states = normalizeApprovedGroupStates(rootConfig.inviteManagement.approvedGroupStates)
+    const exists = states.some(item => (
+      item.groupId === target && this.isCurrentBotApprovedState(item)
+    ))
+    if (!exists) {
+      const now = Date.now()
+      states.push({
+        groupId: target,
+        botId: this.botId,
+        approvedAt: now,
+        expiresAt: now + this.approvedGroupExpireMs,
+        source: 'manual'
+      })
+      rootConfig.inviteManagement.approvedGroupStates = states
       Config.saveConfig(rootConfig)
     }
     this.reload()
     return true
   }
 
-  removeApprovedGroup(groupId) {
+  removeApprovedGroup(groupId, { removeLegacy = false } = {}) {
     const target = toId(groupId)
     if (!target) {
       return false
@@ -641,18 +774,23 @@ export class InviteManagementService {
 
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
-    const list = normalizeIdList(rootConfig.inviteManagement.approvedGroups)
-    const next = list.filter(item => item !== target)
-    if (next.length !== list.length) {
-      rootConfig.inviteManagement.approvedGroups = next
+    const states = normalizeApprovedGroupStates(rootConfig.inviteManagement.approvedGroupStates)
+    const nextStates = states.filter(item => !(
+      item.groupId === target && this.isCurrentBotApprovedState(item)
+    ))
+    const legacy = normalizeIdList(rootConfig.inviteManagement.approvedGroups)
+    const nextLegacy = removeLegacy ? legacy.filter(item => item !== target) : legacy
+    if (nextStates.length !== states.length || nextLegacy.length !== legacy.length) {
+      rootConfig.inviteManagement.approvedGroupStates = nextStates
+      rootConfig.inviteManagement.approvedGroups = nextLegacy
       Config.saveConfig(rootConfig)
     }
     this.reload()
-    return next.length !== list.length
+    return nextStates.length !== states.length || nextLegacy.length !== legacy.length
   }
 
   consumeApprovedGroup(groupId) {
-    return this.removeApprovedGroup(groupId)
+    return this.removeApprovedGroup(groupId, { removeLegacy: true })
   }
 
   async canHandleRequest(e, request) {

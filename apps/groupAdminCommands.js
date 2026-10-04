@@ -2,6 +2,7 @@ import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { GroupAdminService, GroupBannedWords, bannedWordMatchTypeMap, bannedWordPenaltyTypeMap } from '../model/groupAdminConfig.js'
 import { hasVerifySession, passVerify, reverifyUser, startVerifyForUser } from '../model/groupAdminRuntime.js'
+import { addUsersToBlacklist } from '../utils/yunzaiConfig.js'
 import {
   TIME_UNIT,
   addGroupAdminBlacklist,
@@ -103,6 +104,7 @@ export class GroupAdminCommands extends plugin {
         { reg: '^[tT]解禁(\\d+)?$', fnc: 'unmuteMember' },
         { reg: '^[tT]全(体|员)(禁言|解禁)$', fnc: 'muteAll' },
         { reg: '^[tT]踢黑?(\\d+)?$', fnc: 'kickMember' },
+        { reg: '^[tT]批量踢黑(?:\\s+.*)?$', fnc: 'batchKickBlacklist' },
         { reg: '^[tT](设置|取消)管理(\\d+)?$', fnc: 'setAdmin' },
         { reg: '^[tT](修改|设置)头衔', fnc: 'setUserTitle' },
         { reg: '^[tT](申请|我要)头衔', fnc: 'applyOwnTitle' },
@@ -188,6 +190,55 @@ export class GroupAdminCommands extends plugin {
     } catch (err) {
       await e.reply(err.message || String(err))
     }
+    return true
+  }
+
+  async batchKickBlacklist(e) {
+    if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
+    if (!await checkPermission(e, 'admin', 'admin')) return true
+
+    const config = getGroupConfig()
+    const scope = getBlacklistScopeStatus(e, config)
+    if (!scope.ok) {
+      await e.reply(scope.message, true)
+      return true
+    }
+
+    const text = getMessageText(e)
+    const numericIds = text.replace(/^[tT]批量踢黑/, '').match(/\d{5,}/g) || []
+    const userIds = [...new Set([...extractAtIds(e), ...numericIds].map(String))]
+    if (userIds.length === 0) {
+      await e.reply('请艾特或输入要批量踢黑的用户QQ号')
+      return true
+    }
+
+    const service = getService(e)
+    const kicked = []
+    const failed = []
+    for (const userId of userIds) {
+      try {
+        await service.kickMember(e.group_id, userId, e.user_id, true, config)
+        kicked.push(userId)
+      } catch (err) {
+        failed.push(`${userId}（${err.message || '失败'}）`)
+      }
+    }
+
+    const blacklistResult = addUsersToBlacklist(kicked, '群管批量踢黑')
+    const lines = [`批量踢黑完成：踢出 ${kicked.length} 个`]
+    if (blacklistResult.added.length) {
+      lines.push(`新增黑名单 ${blacklistResult.added.length} 个`)
+    }
+    if (blacklistResult.existing.length) {
+      lines.push(`原已在黑名单 ${blacklistResult.existing.length} 个`)
+    }
+    if (failed.length) {
+      lines.push(`失败：${failed.join('、')}`)
+    }
+    if (!blacklistResult.ok) {
+      lines.push('黑名单保存失败，请稍后检查配置')
+    }
+    await e.reply(lines.join('\n'))
     return true
   }
 

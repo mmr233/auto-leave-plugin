@@ -156,7 +156,8 @@ export class BotInviteRequestHandler extends plugin {
         memberCount: precheck.memberCount,
         precheckStatus: 'failed',
         precheckReason: precheck.reason,
-        precheckAction
+        precheckAction,
+        status: 'precheck_failed'
       }
 
       if (precheckAction === 'reject') {
@@ -265,13 +266,21 @@ export class BotInviteConfirmHandler extends plugin {
     }
 
     const hasPendingRequests = service.cleanExpiredPendingRequests().length > 0
-    const pendingRequest = service.findPendingRequest({
+    const pendingMatches = service.findPendingRequests({
       msgId: replyMsgId,
       groupId,
       requestId
     })
+    const pendingRequest = pendingMatches.length > 1 && !replyMsgId && !requestId
+      ? null
+      : pendingMatches[0] || null
 
     if (!pendingRequest) {
+      if (groupId && pendingMatches.length > 1) {
+        await e.reply('同一群存在多个待处理邀请，请引用对应的审核通知或使用请求ID处理')
+        return true
+      }
+
       if (force && groupId) {
         service.markApprovedGroup(groupId)
         await e.reply(`已登记群 ${groupId} 的强制放行；下次收到该群邀请时将自动同意，并跳过本次人数退群检查`)
@@ -475,6 +484,7 @@ export class BotInviteManageCommands extends plugin {
       return true
     }
 
+    const approvedGroups = service.getApprovedGroupIds()
     const lines = [
       '群邀请审核配置',
       `状态：${service.config.enabled ? '已启用' : '已关闭'}`,
@@ -486,7 +496,7 @@ export class BotInviteManageCommands extends plugin {
       `人数预检查：${service.config.precheckMemberCount ? '开启' : '关闭'}`,
       `预检查模式：${PRECHECK_MODE_LABEL[service.config.precheckMode] || service.config.precheckMode}`,
       `预检查失败：${PRECHECK_FAILURE_ACTION_LABEL[service.config.precheckFailureAction] || service.config.precheckFailureAction}`,
-      `已批准群：${service.config.approvedGroups.length ? service.config.approvedGroups.join('、') : '无'}`
+      `已批准群：${approvedGroups.length ? approvedGroups.join('、') : '无'}`
     ]
     await e.reply(lines.join('\n'))
     return true

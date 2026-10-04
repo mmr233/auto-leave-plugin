@@ -5,6 +5,9 @@
   "author": "@mmr233",
   "main": "index.js",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "lodash": "^4.17.21",
     "node-schedule": "^2.1.1",

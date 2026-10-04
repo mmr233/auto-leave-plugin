@@ -15,6 +15,7 @@ const processedGroups = new Set()
 
 // 违禁词触发记录
 const bannedWordTriggers = new Map()
+let eventListenerReady = false
 
 /**
  * 处理群成员增加事件
@@ -184,20 +185,26 @@ async function checkAndKickBlacklistUser(e) {
  * 初始化事件监听
  */
 export function initEventListener() {
-  if (!(Bot && Bot.on)) {
+  if (eventListenerReady) {
+    return true
+  }
+
+  const bot = globalThis.Bot
+  if (!bot?.on) {
     return false
   }
 
   // 监听群成员增加事件（机器人进群和用户进群）
-  Bot.on('notice.group.increase', (e) => {
+  bot.on('notice.group.increase', (e) => {
     handleGroupIncrease(e)
   })
   // 监听群禁言事件
-  Bot.on('notice.group.ban', (e) => {
+  bot.on('notice.group.ban', (e) => {
     import('./muteCheck.js').then(module => module.handleGroupMute(e))
   })
 
   initGroupAdminRuntime()
+  eventListenerReady = true
 
   return true
 }
