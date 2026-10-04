@@ -2,7 +2,9 @@ import plugin from '../../../lib/plugins/plugin.js'
 import {
   InviteManagementService,
   REVIEW_MODE,
-  REVIEW_MODE_LABEL
+  REVIEW_MODE_LABEL,
+  PRECHECK_MODE_LABEL,
+  PRECHECK_FAILURE_ACTION_LABEL
 } from '../model/inviteManagement.js'
 
 function getText(e) {
@@ -18,7 +20,7 @@ function getReplyMsgId(e) {
 }
 
 function getCommandGroupId(text) {
-  return text.replace(/^#(确认|同意|拒绝)加群/, '').trim()
+  return text.replace(/^#(强制同意|确认|同意|拒绝)加群/, '').trim()
 }
 
 function getEnabledInviteService(e) {
@@ -51,7 +53,7 @@ export class BotInviteRequestHandler extends plugin {
 
     if (service.isBlackGroup(groupId)) {
       try {
-        const groupInfo = await service.getGroupInfo(groupId)
+        const groupInfo = await service.getGroupInfo(groupId, e)
         const request = {
           userId: String(e.user_id || ''),
           groupId,
@@ -70,7 +72,7 @@ export class BotInviteRequestHandler extends plugin {
     if (service.isWhiteGroup(groupId)) {
       try {
         await service.approveCurrentEvent(e, true)
-        const groupInfo = await service.getGroupInfo(groupId)
+        const groupInfo = await service.getGroupInfo(groupId, e)
         const request = {
           userId: String(e.user_id || ''),
           groupId,
@@ -85,25 +87,25 @@ export class BotInviteRequestHandler extends plugin {
       return true
     }
 
-    const mode = service.config.reviewMode
-    if (mode === REVIEW_MODE.AUTO_APPROVE) {
+    // 黑名单与白名单优先于普通邀请处理；已批准群仅用于放行本次邀请。
+    if (service.isApprovedGroup(groupId)) {
       try {
+        const [groupInfo, userInfo] = await Promise.all([
+          service.getGroupInfo(groupId, e),
+          service.getUserInfo(e.user_id)
+        ])
+        const request = service.createRequestInfo(e, groupInfo, userInfo)
         await service.approveCurrentEvent(e, true)
-        const groupInfo = await service.getGroupInfo(groupId)
-        const request = {
-          userId: String(e.user_id || ''),
-          groupId,
-          groupName: groupInfo.groupName
-        }
-        const msg = service.formatInviteMessage('autoApproved', request)
+        const msg = service.formatInviteMessage('forceApproved', request)
         await service.notifyInviter(request, msg)
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
-        logger.error(`[自动退群] 自动同意群邀请失败: ${err.message}`)
+        logger.error(`[自动退群] 放行已批准群邀请失败: ${err.message}`)
       }
       return true
     }
 
+    const mode = service.config.reviewMode
     if (mode === REVIEW_MODE.DISABLED) {
       const request = {
         userId: String(e.user_id || ''),
@@ -118,7 +120,7 @@ export class BotInviteRequestHandler extends plugin {
 
     if (mode === REVIEW_MODE.AUTO_REJECT) {
       try {
-        const groupInfo = await service.getGroupInfo(groupId)
+        const groupInfo = await service.getGroupInfo(groupId, e)
         const request = {
           userId: String(e.user_id || ''),
           groupId,
@@ -135,10 +137,72 @@ export class BotInviteRequestHandler extends plugin {
     }
 
     const [groupInfo, userInfo] = await Promise.all([
-      service.getGroupInfo(groupId),
+      service.getGroupInfo(groupId, e),
       service.getUserInfo(e.user_id)
     ])
-    const request = service.createRequestInfo(e, groupInfo, userInfo)
+    const baseRequest = service.createRequestInfo(e, groupInfo, userInfo)
+    const precheck = service.evaluatePrecheck(groupInfo)
+
+    if (precheck.status === 'warning') {
+      baseRequest.precheckStatus = 'warning'
+      baseRequest.precheckReason = precheck.reason
+      logger.info(`[自动退群] 群 ${groupId} 人数预检查仅提示：${precheck.reason || '检查通过'}`)
+    }
+
+    if (!precheck.passed) {
+      const precheckAction = service.config.precheckFailureAction
+      const request = {
+        ...baseRequest,
+        memberCount: precheck.memberCount,
+        precheckStatus: 'failed',
+        precheckReason: precheck.reason,
+        precheckAction
+      }
+
+      if (precheckAction === 'reject') {
+        try {
+          await service.approveCurrentEvent(e, false, precheck.reason)
+          const inviterMessage = service.buildInviteeMessage(request, 'inviteRejected')
+          await service.notifyInviter(request, inviterMessage)
+          await service.notifyUsers(service.buildPrecheckMessage(request), [request.userId])
+          if (service.config.notifyMasterOnPrecheckReject) {
+            await service.notifyMaster(service.buildPrecheckMessage(request))
+          }
+        } catch (err) {
+          logger.error(`[自动退群] 拒绝预检查失败的群邀请失败: ${err.message}`)
+        }
+        return true
+      }
+
+      if (precheckAction === 'manual') {
+        const savedRequest = await service.sendReviewNotifications(request)
+        const hasMasterTarget = savedRequest.masterNotified
+
+        if (savedRequest.manageGroupIds.length === 0 && service.config.notifyUsers.length === 0 && !hasMasterTarget) {
+          await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
+          logger.warn('[自动退群] 预检查未通过，但未配置可用的审核通知目标')
+          return true
+        }
+
+        service.addPendingRequest(savedRequest)
+        await service.notifyInviter(request, service.buildInviteeMessage(request, 'inviteSubmitted'))
+        return true
+      }
+    }
+
+    if (mode === REVIEW_MODE.AUTO_APPROVE) {
+      try {
+        await service.approveCurrentEvent(e, true)
+        const msg = service.formatInviteMessage('autoApproved', baseRequest)
+        await service.notifyInviter(baseRequest, msg)
+        await service.notifyUsers(msg, [String(e.user_id || '')])
+      } catch (err) {
+        logger.error(`[自动退群] 自动同意群邀请失败: ${err.message}`)
+      }
+      return true
+    }
+
+    const request = baseRequest
     const savedRequest = await service.sendReviewNotifications(request)
 
     if (savedRequest.manageGroupIds.length === 0 && service.config.notifyUsers.length === 0) {
@@ -163,7 +227,7 @@ export class BotInviteConfirmHandler extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: '^#(确认|同意|拒绝)加群(\\s+\\S+)?$',
+          reg: '^#(强制同意|确认|同意|拒绝)加群(\\s+\\S+)?$',
           fnc: 'handleConfirm'
         }
       ]
@@ -177,7 +241,14 @@ export class BotInviteConfirmHandler extends plugin {
     }
 
     const text = getText(e)
-    const approve = /^(#确认加群|#同意加群)/.test(text)
+    const force = /^#强制同意加群/.test(text)
+    const approve = force || /^(#确认加群|#同意加群)/.test(text)
+
+    if (force && !e.isMaster) {
+      await e.reply('只有主人才能强制同意群邀请')
+      return true
+    }
+
     const replyMsgId = getReplyMsgId(e)
     const commandTarget = getCommandGroupId(text)
     let requestId = ''
@@ -201,6 +272,13 @@ export class BotInviteConfirmHandler extends plugin {
     })
 
     if (!pendingRequest) {
+      if (force && groupId) {
+        service.markApprovedGroup(groupId)
+        await e.reply(`已登记群 ${groupId} 的强制放行；下次收到该群邀请时将自动同意，并跳过本次人数退群检查`)
+        logger.info(`[自动退群] 主人已登记群 ${groupId} 的强制放行`)
+        return true
+      }
+
       if (!hasPendingRequests) {
         return false
       }
@@ -218,7 +296,6 @@ export class BotInviteConfirmHandler extends plugin {
       await service.approvePendingRequest(pendingRequest, approve, reason)
       service.removePendingRequest(pendingRequest.requestId)
     } catch (err) {
-      service.removePendingRequest(pendingRequest.requestId)
       logger.error(`[自动退群] 处理群邀请请求失败: ${err.message}`)
       await e.reply(service.formatInviteMessage('processFailed', pendingRequest, {
         error: err.message
@@ -226,7 +303,9 @@ export class BotInviteConfirmHandler extends plugin {
       return true
     }
 
-    const resultMsg = service.buildResultMessage(pendingRequest, approve)
+    const resultMsg = force
+      ? service.buildInviteeMessage(pendingRequest, 'forceApproved')
+      : service.buildResultMessage(pendingRequest, approve)
     await e.reply(resultMsg)
     await service.notifyUsers(resultMsg, [String(e.user_id || '')])
     await service.notifyInviter(
@@ -403,7 +482,11 @@ export class BotInviteManageCommands extends plugin {
       `通知群：${service.config.notifyGroups.length ? service.config.notifyGroups.join('、') : '未配置'}`,
       `通知用户：${service.config.notifyUsers.length ? service.config.notifyUsers.map(item => item.userId).join('、') : '未配置'}`,
       `待处理：${service.cleanExpiredPendingRequests().length} 条`,
-      `有效期：${service.config.requestExpireMinutes} 分钟`
+      `有效期：${service.config.requestExpireMinutes} 分钟`,
+      `人数预检查：${service.config.precheckMemberCount ? '开启' : '关闭'}`,
+      `预检查模式：${PRECHECK_MODE_LABEL[service.config.precheckMode] || service.config.precheckMode}`,
+      `预检查失败：${PRECHECK_FAILURE_ACTION_LABEL[service.config.precheckFailureAction] || service.config.precheckFailureAction}`,
+      `已批准群：${service.config.approvedGroups.length ? service.config.approvedGroups.join('、') : '无'}`
     ]
     await e.reply(lines.join('\n'))
     return true

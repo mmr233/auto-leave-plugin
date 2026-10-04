@@ -67,6 +67,55 @@ export const inviteManagementConfigSchema = [
   },
   {
     component: 'Divider',
+    label: '邀请前人数预检查',
+    componentProps: {
+      orientation: 'left',
+      plain: true
+    }
+  },
+  {
+    field: 'inviteManagement.precheckMemberCount',
+    label: '启用群人数预检查',
+    bottomHelpMessage: '同意邀请前读取群成员数量，与基础配置中的最低群成员数比较；黑白名单邀请不受此项影响',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'inviteManagement.precheckMode',
+    label: '预检查模式',
+    bottomHelpMessage: '拒绝模式会把低于最低人数的邀请判定为预检查失败，提示模式只记录提示并继续普通流程',
+    component: 'RadioGroup',
+    defaultValue: 'reject',
+    componentProps: {
+      options: [
+        { label: '低于要求时判定失败', value: 'reject' },
+        { label: '低于要求时仅提示', value: 'warn' }
+      ]
+    }
+  },
+  {
+    field: 'inviteManagement.precheckFailureAction',
+    label: '预检查失败动作',
+    bottomHelpMessage: '人数不足或无法读取人数时的处理动作；转人工审核可使用主人强制同意入口',
+    component: 'RadioGroup',
+    defaultValue: 'manual',
+    componentProps: {
+      options: [
+        { label: '转人工审核', value: 'manual' },
+        { label: '直接拒绝', value: 'reject' },
+        { label: '继续普通规则', value: 'continue' }
+      ]
+    }
+  },
+  {
+    field: 'inviteManagement.notifyMasterOnPrecheckReject',
+    label: '预检查失败通知主人',
+    bottomHelpMessage: '预检查失败时私聊通知主人，并附带 #强制同意加群 入口',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    component: 'Divider',
     label: '通知配置',
     componentProps: {
       orientation: 'left',
@@ -119,6 +168,16 @@ export const inviteManagementConfigSchema = [
     component: 'GSelectGroup',
     componentProps: {
       placeholder: '点击选择白名单群，可手动输入',
+      allowInput: true
+    }
+  },
+  {
+    field: 'inviteManagement.approvedGroups',
+    label: '已批准群（一次性）',
+    bottomHelpMessage: '人工同意或主人强制放行后自动维护；机器人进群并跳过本次人数检查后会自动移除',
+    component: 'GSelectGroup',
+    componentProps: {
+      placeholder: '点击选择已批准群，可手动输入',
       allowInput: true
     }
   }

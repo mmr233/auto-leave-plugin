@@ -8,7 +8,7 @@ import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
 import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
 import { initGroupAdminRuntime } from './groupAdminRuntime.js'
-import { normalizeIdList } from './inviteManagement.js'
+import { InviteManagementService, normalizeIdList } from './inviteManagement.js'
 
 // 处理标记，防止重复处理
 const processedGroups = new Set()
@@ -52,6 +52,10 @@ async function processGroupJoin(e) {
     const groupId = e.group_id
     logger.info(`[自动退群] 检测到机器人被拉入群: ${groupId}, 机器人ID: ${botId}`)
     const config = Config.loadConfig()
+    const inviteService = new InviteManagementService(e)
+    const approvedByInvite = inviteService.isApprovedGroup(groupId)
+      ? inviteService.consumeApprovedGroup(groupId)
+      : false
 
     // 检查黑名单 - 黑名单优先级最高
     const blacklist = [
@@ -89,6 +93,12 @@ async function processGroupJoin(e) {
           logger.warn(`[自动退群] 发送白名单进群提示失败: ${err.message}`)
         }
       }
+      return
+    }
+
+    // 人工批准或主人强制放行的群只跳过本次进群后人数退群检查，消费一次即失效。
+    if (approvedByInvite) {
+      logger.info(`[自动退群] 群 ${groupId} 已通过邀请审核，跳过本次人数检查`)
       return
     }
 

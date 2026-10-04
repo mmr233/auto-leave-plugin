@@ -8,6 +8,7 @@ const INVITE_COMMON_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupNam
 const INVITE_REVIEW_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{requestId}=审核请求ID，{expireMinutes}=请求有效分钟数`
 const INVITE_EXPIRE_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{expireMinutes}=请求有效分钟数，{reviewMode}=当前审核模式'
 const INVITE_ERROR_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{error}=处理失败时的错误信息`
+const INVITE_PRECHECK_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{memberCount}=预检查获取到的群人数，{minMemberCount}=最低人数要求，{precheckReason}=预检查原因，{precheckAction}=预检查失败动作`
 
 export const messageConfigSchema = [
   {
@@ -188,6 +189,26 @@ export const messageConfigSchema = [
     component: 'Input',
     componentProps: {
       placeholder: '请输入无通知目标提示',
+      type: 'textarea'
+    }
+  },
+  {
+    field: 'inviteMessages.precheckRejected',
+    label: '预检查失败通知',
+    bottomHelpMessage: INVITE_PRECHECK_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: {
+      placeholder: '请输入预检查失败通知',
+      type: 'textarea'
+    }
+  },
+  {
+    field: 'inviteMessages.forceApproved',
+    label: '强制同意通知',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: {
+      placeholder: '请输入强制同意通知',
       type: 'textarea'
     }
   },

@@ -137,7 +137,7 @@ export async function setConfigData(data, { Result }) {
 
     if (config.inviteManagement) {
       const invite = config.inviteManagement
-      for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups']) {
+      for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups', 'approvedGroups']) {
         if (invite[key] !== undefined) {
           invite[key] = normalizeGroupSelectValues(invite[key])
         }
@@ -154,6 +154,22 @@ export async function setConfigData(data, { Result }) {
       }
       if (invite.maxPendingRequests !== undefined) {
         invite.maxPendingRequests = Math.max(1, Number(invite.maxPendingRequests) || 20)
+      }
+      if (invite.precheckMode !== undefined) {
+        invite.precheckMode = ['reject', 'warn'].includes(String(invite.precheckMode))
+          ? String(invite.precheckMode)
+          : 'reject'
+      }
+      if (invite.precheckFailureAction !== undefined) {
+        invite.precheckFailureAction = ['manual', 'reject', 'continue'].includes(String(invite.precheckFailureAction))
+          ? String(invite.precheckFailureAction)
+          : 'manual'
+      }
+      if (invite.precheckMemberCount !== undefined) {
+        invite.precheckMemberCount = invite.precheckMemberCount !== false
+      }
+      if (invite.notifyMasterOnPrecheckReject !== undefined) {
+        invite.notifyMasterOnPrecheckReject = invite.notifyMasterOnPrecheckReject !== false
       }
     }
 

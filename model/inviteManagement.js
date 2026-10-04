@@ -6,6 +6,7 @@ import {
   getGroup,
   getGroupMemberInfo
 } from '../utils/groupAdmin.js'
+import { getMasterQQ } from '../utils/common.js'
 
 export const REVIEW_MODE = {
   AUTO_APPROVE: 0,
@@ -21,6 +22,28 @@ export const REVIEW_MODE_LABEL = {
   [REVIEW_MODE.AUTO_REJECT]: '自动拒绝'
 }
 
+export const PRECHECK_MODE = {
+  REJECT: 'reject',
+  WARN: 'warn'
+}
+
+export const PRECHECK_MODE_LABEL = {
+  [PRECHECK_MODE.REJECT]: '低于人数要求时判定失败',
+  [PRECHECK_MODE.WARN]: '低于人数要求时仅提示'
+}
+
+export const PRECHECK_FAILURE_ACTION = {
+  MANUAL: 'manual',
+  REJECT: 'reject',
+  CONTINUE: 'continue'
+}
+
+export const PRECHECK_FAILURE_ACTION_LABEL = {
+  [PRECHECK_FAILURE_ACTION.MANUAL]: '转人工审核',
+  [PRECHECK_FAILURE_ACTION.REJECT]: '直接拒绝',
+  [PRECHECK_FAILURE_ACTION.CONTINUE]: '继续按普通规则处理'
+}
+
 function unique(list) {
   return [...new Set(list)]
 }
@@ -28,6 +51,21 @@ function unique(list) {
 function toId(value) {
   const id = String(value ?? '').trim()
   return /^\d+$/.test(id) ? id : ''
+}
+
+function toMemberCount(value) {
+  const count = Number(value)
+  return Number.isFinite(count) && count >= 0 ? count : null
+}
+
+function firstMemberCount(...values) {
+  for (const value of values) {
+    const count = toMemberCount(value)
+    if (count !== null) {
+      return count
+    }
+  }
+  return null
 }
 
 function collectIds(value, keys = ['groupId', 'groupIdInput', 'groupIds', 'manageGroupId', 'userId', 'id']) {
@@ -97,6 +135,10 @@ function normalizePendingRequests(value) {
       subType: String(item.subType || item.sub_type || 'invite'),
       msgIds: normalizeIdList(item.msgIds ?? item.msgId),
       manageGroupIds: normalizeIdList(item.manageGroupIds ?? item.manageGroupId),
+      memberCount: firstMemberCount(item.memberCount, item.member_count),
+      precheckStatus: String(item.precheckStatus || '').trim(),
+      precheckReason: String(item.precheckReason || '').trim(),
+      precheckAction: String(item.precheckAction || '').trim(),
       requestTime
     }
   }).filter(item => item.groupId && item.flag)
@@ -116,7 +158,16 @@ export function getInviteConfig(rootConfig = Config.loadConfig()) {
     notifyUsers: normalizeNotifyUsers(raw.notifyUsers),
     blackGroups: normalizeIdList(raw.blackGroups),
     whiteGroups: normalizeIdList(raw.whiteGroups),
-    pendingRequests: normalizePendingRequests(raw.pendingRequests)
+    pendingRequests: normalizePendingRequests(raw.pendingRequests),
+    approvedGroups: normalizeIdList(raw.approvedGroups),
+    precheckMemberCount: raw.precheckMemberCount !== false,
+    precheckMode: Object.values(PRECHECK_MODE).includes(String(raw.precheckMode))
+      ? String(raw.precheckMode)
+      : PRECHECK_MODE.REJECT,
+    precheckFailureAction: Object.values(PRECHECK_FAILURE_ACTION).includes(String(raw.precheckFailureAction))
+      ? String(raw.precheckFailureAction)
+      : PRECHECK_FAILURE_ACTION.MANUAL,
+    notifyMasterOnPrecheckReject: raw.notifyMasterOnPrecheckReject !== false
   }
 }
 
@@ -244,6 +295,10 @@ export class InviteManagementService {
       groupName: groupInfo.groupName || '未知群名',
       userId,
       nickname: userInfo.nickname || '未知用户',
+      memberCount: firstMemberCount(groupInfo.memberCount),
+      precheckStatus: '',
+      precheckReason: '',
+      precheckAction: '',
       flag: String(e.flag || ''),
       subType: String(e.sub_type || e.subType || 'invite'),
       msgIds: [],
@@ -253,6 +308,7 @@ export class InviteManagementService {
   }
 
   getTemplateVars(request = {}, extra = {}) {
+    const memberCount = firstMemberCount(request.memberCount, request.member_count)
     return {
       groupId: request.groupId || request.group_id || '',
       groupName: request.groupName || request.group_name || '未知群名',
@@ -261,6 +317,13 @@ export class InviteManagementService {
       requestId: request.requestId || '',
       expireMinutes: this.config.requestExpireMinutes,
       reviewMode: REVIEW_MODE_LABEL[this.config.reviewMode] || '',
+      memberCount: memberCount === null ? '未知' : memberCount,
+      minMemberCount: Number(this.rootConfig?.minMemberCount) || 0,
+      precheckReason: request.precheckReason || '',
+      precheckAction: PRECHECK_FAILURE_ACTION_LABEL[request.precheckAction] || '',
+      precheckNotice: ['failed', 'warning'].includes(request.precheckStatus)
+        ? `预检查提示：${request.precheckReason || '未达到人数要求或无法获取群人数'}${request.precheckAction ? `，处理方式：${PRECHECK_FAILURE_ACTION_LABEL[request.precheckAction] || request.precheckAction}` : ''}`
+        : '',
       error: '',
       ...extra
     }
@@ -285,7 +348,66 @@ export class InviteManagementService {
     return this.formatInviteMessage(approve ? 'resultApproved' : 'resultRejected', request)
   }
 
-  async getGroupInfo(groupId) {
+  buildPrecheckMessage(request) {
+    return this.formatInviteMessage('precheckRejected', request)
+  }
+
+  evaluatePrecheck(groupInfo = {}) {
+    if (!this.config.precheckMemberCount) {
+      return {
+        status: 'skipped',
+        passed: true,
+        memberCount: firstMemberCount(groupInfo.memberCount)
+      }
+    }
+
+    const memberCount = firstMemberCount(groupInfo.memberCount)
+    const minMemberCount = Math.max(0, Number(this.rootConfig?.minMemberCount) || 0)
+
+    if (this.config.precheckMode === PRECHECK_MODE.WARN) {
+      return {
+        status: 'warning',
+        passed: true,
+        memberCount,
+        minMemberCount,
+        reason: memberCount === null
+          ? '无法获取群成员数量，仅记录提示'
+          : memberCount < minMemberCount
+            ? `群成员数量 ${memberCount}，低于要求 ${minMemberCount}`
+            : ''
+      }
+    }
+
+    if (memberCount === null) {
+      return {
+        status: 'failed',
+        passed: false,
+        memberCount: null,
+        minMemberCount,
+        reason: '无法获取群成员数量'
+      }
+    }
+
+    if (memberCount < minMemberCount) {
+      return {
+        status: 'failed',
+        passed: false,
+        memberCount,
+        minMemberCount,
+        reason: `群成员数量 ${memberCount}，低于要求 ${minMemberCount}`
+      }
+    }
+
+    return {
+      status: 'passed',
+      passed: true,
+      memberCount,
+      minMemberCount,
+      reason: ''
+    }
+  }
+
+  async getGroupInfo(groupId, event = null) {
     try {
       const res = await callBotApi(this.bot, 'get_group_info', {
         group_id: Number(groupId),
@@ -294,7 +416,8 @@ export class InviteManagementService {
       const data = getApiData(res)
       return {
         groupId: String(data.group_id || groupId),
-        groupName: data.group_name || data.groupName || data.name || '未知群名'
+        groupName: data.group_name || data.groupName || data.name || event?.group_name || '未知群名',
+        memberCount: firstMemberCount(data.member_count, data.memberCount, event?.member_count, event?.memberCount)
       }
     } catch (err) {
       logger.debug?.(`[自动退群] 获取邀请群信息失败: ${err.message}`)
@@ -305,7 +428,8 @@ export class InviteManagementService {
       const info = group?.info || group
       return {
         groupId: String(groupId),
-        groupName: info?.group_name || info?.groupName || info?.name || '未知群名'
+        groupName: info?.group_name || info?.groupName || info?.name || event?.group_name || '未知群名',
+        memberCount: firstMemberCount(info?.member_count, info?.memberCount, event?.member_count, event?.memberCount)
       }
     } catch (err) {
       logger.debug?.(`[自动退群] 读取邀请群缓存失败: ${err.message}`)
@@ -313,7 +437,8 @@ export class InviteManagementService {
 
     return {
       groupId: String(groupId),
-      groupName: '未知群名'
+      groupName: event?.group_name || '未知群名',
+      memberCount: firstMemberCount(event?.member_count, event?.memberCount)
     }
   }
 
@@ -392,10 +517,16 @@ export class InviteManagementService {
 
     await this.notifyUsers(message, [request.userId])
 
+    let masterNotified = false
+    if (request.precheckStatus === 'failed' && this.config.notifyMasterOnPrecheckReject) {
+      masterNotified = await this.notifyMaster(this.buildPrecheckMessage(request))
+    }
+
     return {
       ...request,
       msgIds,
-      manageGroupIds
+      manageGroupIds,
+      masterNotified
     }
   }
 
@@ -414,6 +545,15 @@ export class InviteManagementService {
       return false
     }
     return sendPrivateMessage(this.bot, Number(request.userId) || request.userId, message)
+  }
+
+  async notifyMaster(message) {
+    const botId = this.bot?.uin || this.bot?.self_id
+    const masterQQ = getMasterQQ(botId)
+    if (!masterQQ) {
+      return false
+    }
+    return sendPrivateMessage(this.bot, Number(masterQQ) || masterQQ, message)
   }
 
   filterPending(pending) {
@@ -471,6 +611,50 @@ export class InviteManagementService {
     this.savePendingRequests(pending)
   }
 
+  isApprovedGroup(groupId) {
+    return this.config.approvedGroups.includes(String(groupId))
+  }
+
+  markApprovedGroup(groupId) {
+    const target = toId(groupId)
+    if (!target) {
+      return false
+    }
+
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const list = normalizeIdList(rootConfig.inviteManagement.approvedGroups)
+    if (!list.includes(target)) {
+      list.push(target)
+      rootConfig.inviteManagement.approvedGroups = list
+      Config.saveConfig(rootConfig)
+    }
+    this.reload()
+    return true
+  }
+
+  removeApprovedGroup(groupId) {
+    const target = toId(groupId)
+    if (!target) {
+      return false
+    }
+
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const list = normalizeIdList(rootConfig.inviteManagement.approvedGroups)
+    const next = list.filter(item => item !== target)
+    if (next.length !== list.length) {
+      rootConfig.inviteManagement.approvedGroups = next
+      Config.saveConfig(rootConfig)
+    }
+    this.reload()
+    return next.length !== list.length
+  }
+
+  consumeApprovedGroup(groupId) {
+    return this.removeApprovedGroup(groupId)
+  }
+
   async canHandleRequest(e, request) {
     const userId = String(e.user_id || '')
     if (e.isMaster) {
@@ -499,16 +683,32 @@ export class InviteManagementService {
     return role === 'owner' || role === 'admin'
   }
 
-  async approvePendingRequest(request, approve, reason = '') {
-    await setGroupAddRequest(this.bot, request, approve, reason)
+  async approvePendingRequest(request, approve, reason = '', { rememberApproval = true } = {}) {
+    const hadApproval = this.isApprovedGroup(request.groupId)
+    if (approve && rememberApproval && !hadApproval) {
+      this.markApprovedGroup(request.groupId)
+    }
+
+    try {
+      await setGroupAddRequest(this.bot, request, approve, reason)
+    } catch (err) {
+      if (approve && rememberApproval && !hadApproval) {
+        this.removeApprovedGroup(request.groupId)
+      }
+      throw err
+    }
   }
 
-  async approveCurrentEvent(e, approve, reason = '') {
+  async approveCurrentEvent(e, approve, reason = '', { rememberApproval = false } = {}) {
     await setGroupAddRequest(this.bot, {
       flag: e.flag,
       subType: e.sub_type || e.subType || 'invite',
       event: e
     }, approve, reason)
+
+    if (approve && rememberApproval) {
+      this.markApprovedGroup(e.group_id)
+    }
   }
 
   updateGroupList(key, groupId, action) {

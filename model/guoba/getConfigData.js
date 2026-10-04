@@ -110,6 +110,7 @@ export async function getConfigData() {
       notifyUsers: toFriendSelectValues(inviteManagement.notifyUsers),
       blackGroups: toGroupSelectValues(inviteManagement.blackGroups),
       whiteGroups: toGroupSelectValues(inviteManagement.whiteGroups),
+      approvedGroups: toGroupSelectValues(inviteManagement.approvedGroups),
       pendingRequests: config.inviteManagement?.pendingRequests || []
     },
     groupAdmin: {
