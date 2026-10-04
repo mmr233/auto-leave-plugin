@@ -2,6 +2,7 @@ import { Config } from '../components/config.js'
 import { GroupAdminService } from './groupAdminConfig.js'
 import {
   approveGroupRequest,
+  callBotApi,
   getGroup,
   getBotRole,
   getGroupMemberInfo,
@@ -51,6 +52,80 @@ function isUserBlacklistActive(config) {
 
 function isUserBlacklisted(userId) {
   return getGroupAdminBlacklist().includes(Number(userId))
+}
+
+function getRequestUserId(e) {
+  return e?.user_id ?? e?.userId ?? e?.operator_id ?? e?.inviter_id ?? ''
+}
+
+function getRequestUserNickname(e) {
+  return e?.nickname || e?.sender?.card || e?.sender?.nickname || e?.user?.nickname || ''
+}
+
+async function getRequestUserProfile(e, userId) {
+  const fallbackNickname = getRequestUserNickname(e)
+  if (fallbackNickname) {
+    return { userId: String(userId), nickname: fallbackNickname }
+  }
+
+  try {
+    const res = await callBotApi(e, 'get_stranger_info', {
+      user_id: Number(userId) || userId,
+      no_cache: false
+    })
+    const data = res?.data || res?.response || res || {}
+    const nickname = data.nickname || data.nick || data.card
+    if (nickname) {
+      return { userId: String(data.user_id || userId), nickname: String(nickname) }
+    }
+  } catch (err) {
+    logger.debug?.(`[自动退群] 获取加群申请人信息失败: ${err.message}`)
+  }
+
+  try {
+    const bot = e?.bot || globalThis.Bot?.[e?.self_id] || globalThis.Bot
+    const user = bot?.pickUser?.(Number(userId) || userId) || bot?.pickFriend?.(Number(userId) || userId)
+    const info = user?.info || await user?.getInfo?.()
+    const nickname = info?.nickname || info?.nick || info?.card
+    if (nickname) {
+      return { userId: String(userId), nickname: String(nickname) }
+    }
+  } catch (err) {
+    logger.debug?.(`[自动退群] 读取加群申请人缓存失败: ${err.message}`)
+  }
+
+  return { userId: String(userId), nickname: '未知用户' }
+}
+
+export function buildGroupRequestNotice(e, config, {
+  nickname = '',
+  inviterNickname = ''
+} = {}) {
+  const userId = getRequestUserId(e)
+  const subType = String(e?.sub_type || e?.subType || '').toLowerCase()
+  const inviterId = e?.inviter_id ?? e?.inviterId ?? (subType === 'invite' ? e?.operator_id : undefined)
+  const isInvite = subType === 'invite' || inviterId !== undefined && String(inviterId) !== String(userId)
+  const title = isInvite ? '【邀请入群通知】' : '【加群申请通知】'
+  const prefix = String(config?.groupAdmin?.groupAddNotice?.msg || '').trim()
+  const groupName = e?.group_name || e?.groupName || e?.group?.group_name || e?.group?.name
+  const requestMessage = String(e?.comment || e?.message || '').trim()
+  const lines = [
+    title,
+    prefix,
+    groupName ? `群聊：${groupName}` : '',
+    `群号：${e?.group_id ?? e?.groupId ?? '未知'}`,
+    `申请类型：${isInvite ? '邀请入群' : '申请入群'}`,
+    `申请人：${nickname || getRequestUserNickname(e) || '未知用户'}`,
+    `QQ号：${userId || '未知'}`,
+    `申请消息：${requestMessage || '（无）'}`
+  ].filter(Boolean)
+
+  if (inviterId !== undefined && String(inviterId) !== String(userId)) {
+    lines.push(`邀请人：${inviterNickname || '未知用户'}（${inviterId}）`)
+  }
+
+  const image = globalThis.segment?.image?.(`https://q1.qlogo.cn/g?b=qq&s=100&nk=${userId}`)
+  return image ? [`${lines.join('\n')}\n`, image] : [lines.join('\n')]
 }
 
 function toArray(value) {
@@ -316,16 +391,19 @@ export async function handleGroupRequestForAdmin(e) {
     return false
   }
 
-  const msg = [
-    `${config.groupAdmin?.groupAddNotice?.msg || '收到加群申请'}\n`,
-    segment.image(`https://q1.qlogo.cn/g?b=qq&s=100&nk=${e.user_id}`),
-    `QQ号：${e.user_id}\n`,
-    `昵称：${e.nickname || '未知'}\n`,
-    `${e.comment || ''}`
-  ]
-  if (e.inviter_id !== undefined) {
-    msg.push(`\n邀请人：${e.inviter_id}`)
-  }
+  const userId = getRequestUserId(e)
+  const subType = String(e.sub_type || e.subType || '').toLowerCase()
+  const inviterId = e.inviter_id ?? e.inviterId ?? (subType === 'invite' ? e.operator_id : undefined)
+  const [userProfile, inviterProfile] = await Promise.all([
+    getRequestUserProfile(e, userId),
+    inviterId !== undefined && String(inviterId) !== String(userId)
+      ? getRequestUserProfile({ ...e, user_id: inviterId }, inviterId)
+      : Promise.resolve(null)
+  ])
+  const msg = buildGroupRequestNotice(e, config, {
+    nickname: userProfile.nickname,
+    inviterNickname: inviterProfile?.nickname || ''
+  })
   await e.bot?.pickGroup?.(Number(e.group_id))?.sendMsg?.(msg)
   return true
 }

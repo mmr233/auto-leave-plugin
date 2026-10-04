@@ -129,6 +129,64 @@ test('extracts multiple mentioned users', () => {
   assert.deepEqual(ids, [90009, 80008])
 })
 
+test('formats group request notices with labels and resolves applicant nickname', async () => {
+  const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
+  fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })
+  fs.writeFileSync(runtimeConfigPath, JSON.stringify({
+    groupAdmin: {
+      enabled: true,
+      noticeEnabled: true,
+      groupAddNotice: {
+        openGroup: [123456],
+        msg: '收到加群申请'
+      }
+    }
+  }, null, 2))
+
+  globalThis.segment = {
+    image(file) {
+      return { type: 'image', data: { file } }
+    }
+  }
+
+  let sentMessage = null
+  const bot = {
+    self_id: '10001',
+    async sendApi(action) {
+      assert.equal(action, 'get_stranger_info')
+      return { data: { user_id: 99999, nickname: '申请人昵称' } }
+    },
+    pickGroup() {
+      return {
+        async sendMsg(message) {
+          sentMessage = message
+        }
+      }
+    }
+  }
+
+  const runtime = await import(
+    `${pathToFileURL(path.join(testRoot, 'model/groupAdminRuntime.js')).href}?notice-test=${Date.now()}`
+  )
+  await runtime.handleGroupRequestForAdmin({
+    bot,
+    self_id: '10001',
+    request_type: 'group',
+    sub_type: 'add',
+    group_id: 123456,
+    user_id: 99999,
+    comment: '哈哈哈哈我来了'
+  })
+
+  const text = sentMessage.filter(item => typeof item === 'string').join('')
+  assert.match(text, /【加群申请通知】/)
+  assert.match(text, /申请类型：申请入群/)
+  assert.match(text, /申请人：申请人昵称/)
+  assert.match(text, /QQ号：99999/)
+  assert.match(text, /申请消息：哈哈哈哈我来了/)
+  assert.equal(sentMessage.some(item => item?.type === 'image'), true)
+})
+
 test('does not treat CQ at user IDs as mute duration', () => {
   const parsed = groupAdminUtils.parseMuteCommand({
     raw_message: 't禁言 [CQ:at,qq=4019146645] 5分钟',
