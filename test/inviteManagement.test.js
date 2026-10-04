@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { EventEmitter } from 'node:events'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const testRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -126,4 +127,84 @@ test('extracts multiple mentioned users', () => {
     ]
   })
   assert.deepEqual(ids, [90009, 80008])
+})
+
+test('group verification runtime registers listeners and accepts a correct answer', async () => {
+  const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
+  fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })
+  fs.writeFileSync(runtimeConfigPath, JSON.stringify({
+    groupAdmin: {
+      enabled: true,
+      verifyEnabled: true,
+      scheduledMuteEnabled: false,
+      groupVerify: {
+        openGroup: [123456],
+        successMsgs: { 0: '验证成功' },
+        mode: '精确',
+        times: 3,
+        remindAtLastMinute: false,
+        time: 30,
+        range: { min: 10, max: 11 },
+        delayTime: 0
+      }
+    }
+  }, null, 2))
+
+  const bot = new EventEmitter()
+  bot.uin = '10001'
+  const group = {
+    is_admin: true,
+    is_owner: false,
+    pickMember() {
+      return null
+    }
+  }
+  bot.pickGroup = () => group
+  globalThis.segment = {
+    at(userId) {
+      return { type: 'at', qq: userId }
+    }
+  }
+
+  const runtime = await import(
+    `${pathToFileURL(path.join(testRoot, 'model/groupAdminRuntime.js')).href}?test=${Date.now()}`
+  )
+  globalThis.Bot = {}
+  assert.equal(runtime.initGroupAdminRuntime(), false)
+  globalThis.Bot = bot
+  assert.equal(runtime.initGroupAdminRuntime(), true)
+  assert.equal(bot.listenerCount('notice.group.increase'), 1)
+  assert.equal(bot.listenerCount('message.group'), 1)
+
+  const replies = []
+  const event = {
+    bot,
+    self_id: '10001',
+    group,
+    group_id: 123456,
+    user_id: 99999,
+    reply: async message => {
+      replies.push(message)
+      return true
+    }
+  }
+
+  await runtime.handleGroupIncreaseForAdmin(event)
+  assert.equal(runtime.hasVerifySession(123456, 99999), true)
+
+  const prompt = String(replies[0]?.[1] || '')
+  const match = prompt.match(/「(\d+) ([+-]) (\d+)」/)
+  assert.ok(match, `verification prompt missing: ${prompt}`)
+  const expected = match[2] === '+'
+    ? Number(match[1]) + Number(match[3])
+    : Number(match[1]) - Number(match[3])
+
+  await runtime.handleVerifyAnswer({
+    ...event,
+    raw_message: String(expected),
+    msg: String(expected),
+    message_id: 100
+  })
+  assert.equal(runtime.hasVerifySession(123456, 99999), false)
+  assert.ok(replies.some(message => message === '验证成功'))
 })

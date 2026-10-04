@@ -46,6 +46,7 @@ export const groupAdminConfigSchema = [
   {
     field: 'groupAdmin.verifyEnabled',
     label: '启用入群验证',
+    bottomHelpMessage: '需同时开启「群管模块」，并在下方配置开启验证群聊；机器人还必须是群管理员或群主',
     component: 'Switch',
     defaultValue: true
   },

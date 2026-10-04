@@ -3,6 +3,7 @@ import { GroupAdminService } from './groupAdminConfig.js'
 import {
   approveGroupRequest,
   getGroup,
+  getBotRole,
   getGroupMemberInfo,
   getGroupAdminBlacklist,
   kickGroupMember,
@@ -59,6 +60,10 @@ function toArray(value) {
   return value === undefined || value === null ? [] : [value]
 }
 
+function hasId(value, id) {
+  return toArray(value).some(item => String(item) === String(id))
+}
+
 function getMasterIds(config = getConfig()) {
   return new Set([
     ...toArray(config.masterQQ),
@@ -94,7 +99,8 @@ export async function startVerifyForUser(e, userId, groupId = e.group_id) {
   }
   const config = rootConfig.groupAdmin?.groupVerify || {}
   const group = getGroup(e, groupId)
-  if (!group?.is_admin && !group?.is_owner) {
+  const botRole = await getBotRole(e, groupId, group)
+  if (botRole !== 'admin' && botRole !== 'owner') {
     return false
   }
 
@@ -228,22 +234,23 @@ export async function handleGroupIncreaseForAdmin(e) {
     return false
   }
 
-  if (!(verifyConfig.openGroup || []).includes(Number(e.group_id))) {
+  if (!hasId(verifyConfig.openGroup, e.group_id)) {
     return false
   }
 
-  if (!e.group?.is_admin && !e.group?.is_owner) {
+  const botRole = await getBotRole(e, e.group_id, e.group)
+  if (botRole !== 'admin' && botRole !== 'owner') {
     return false
   }
 
   if (getMasterIds(config).has(Number(e.user_id))) {
     return false
   }
-  if ((config.groupAdmin?.whiteQQ || []).includes(Number(e.user_id))) {
+  if (hasId(config.groupAdmin?.whiteQQ, e.user_id)) {
     return false
   }
 
-  await sleep(Number(verifyConfig.delayTime || 2) * 1000)
+  await sleep(Number(verifyConfig.delayTime ?? 2) * 1000)
   await startVerifyForUser(e, e.user_id, e.group_id)
   return true
 }
@@ -258,7 +265,7 @@ export async function handleGroupBanForAdmin(e) {
   if (!isGroupAdminFeatureEnabled(config, 'commandsEnabled')) {
     return false
   }
-  const isWhiteUser = (config.groupAdmin?.whiteQQ || []).includes(Number(e.user_id))
+  const isWhiteUser = hasId(config.groupAdmin?.whiteQQ, e.user_id)
   const botId = e.bot?.uin || global.Bot?.uin || global.Bot?.self_id
   const isMasterOperator = getMasterIds(config).has(Number(e.operator_id)) || Number(e.operator_id) === Number(botId)
   if (isWhiteUser && !isMasterOperator && config.groupAdmin?.noBan && (e.group?.is_admin || e.group?.is_owner) && Number(e.duration) !== 0) {
@@ -314,31 +321,33 @@ export function initGroupAdminRuntime() {
   if (runtimeInited) {
     return true
   }
-  runtimeInited = true
+
+  const bot = globalThis.Bot
+  if (!bot?.on) {
+    return false
+  }
+
   const config = getConfig()
   if (isGroupAdminFeatureEnabled(config, 'scheduledMuteEnabled')) {
     GroupAdminService.loadMuteTasks()
   }
 
-  if (!(Bot && Bot.on)) {
-    return false
-  }
-
-  Bot.on('notice.group.increase', e => {
+  bot.on('notice.group.increase', e => {
     handleGroupIncreaseForAdmin(e)
   })
-  Bot.on('notice.group.decrease', e => {
+  bot.on('notice.group.decrease', e => {
     handleGroupDecreaseForAdmin(e)
   })
-  Bot.on('notice.group.ban', e => {
+  bot.on('notice.group.ban', e => {
     handleGroupBanForAdmin(e)
   })
-  Bot.on('request', e => {
+  bot.on('request', e => {
     handleGroupRequestForAdmin(e)
   })
-  Bot.on('message.group', e => {
+  bot.on('message.group', e => {
     handleVerifyAnswer(e)
   })
 
+  runtimeInited = true
   return true
 }

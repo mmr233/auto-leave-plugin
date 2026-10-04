@@ -120,7 +120,7 @@ cd auto-leave-plugin && pnpm install
 - `groupAdmin.commandsEnabled`: 启用基础群管命令
 - `groupAdmin.bannedWordsEnabled`: 启用群级违禁词
 - `groupAdmin.voteEnabled`: 启用群投票
-- `groupAdmin.verifyEnabled`: 启用入群验证
+- `groupAdmin.verifyEnabled`: 启用入群验证；需同时开启 `groupAdmin.enabled`，并将群号加入 `groupAdmin.groupVerify.openGroup`
 - `groupAdmin.noticeEnabled`: 启用加群申请通知
 - `groupAdmin.announceEnabled`: 启用群公告命令
 - `groupAdmin.scheduledMuteEnabled`: 启用定时禁言任务

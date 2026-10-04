@@ -194,6 +194,10 @@ export function initEventListener() {
     return false
   }
 
+  if (!initGroupAdminRuntime()) {
+    return false
+  }
+
   // 监听群成员增加事件（机器人进群和用户进群）
   bot.on('notice.group.increase', (e) => {
     handleGroupIncrease(e)
@@ -203,7 +207,6 @@ export function initEventListener() {
     import('./muteCheck.js').then(module => module.handleGroupMute(e))
   })
 
-  initGroupAdminRuntime()
   eventListenerReady = true
 
   return true

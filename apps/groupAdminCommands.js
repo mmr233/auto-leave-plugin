@@ -92,6 +92,10 @@ function canUseUserBlacklist(e, config = getGroupConfig()) {
   return getBlacklistScopeStatus(e, config).ok
 }
 
+function hasConfiguredId(value, id) {
+  return (Array.isArray(value) ? value : []).some(item => String(item) === String(id))
+}
+
 export class GroupAdminCommands extends plugin {
   constructor() {
     super({
@@ -491,7 +495,7 @@ export class GroupAdminCommands extends plugin {
     const config = getGroupConfig()
     const type = /开启/.test(getMessageText(e)) ? 'add' : 'del'
     const openGroups = config.groupAdmin?.groupAddNotice?.openGroup || []
-    const isOpen = openGroups.includes(Number(e.group_id))
+    const isOpen = hasConfiguredId(openGroups, e.group_id)
     if (isOpen && type === 'add') {
       await e.reply('本群加群申请通知已处于开启状态')
       return true
@@ -576,7 +580,7 @@ export class GroupBannedWordsCommands extends plugin {
     if (!isGroupAdminFeatureEnabled('bannedWordsEnabled', config)) {
       return false
     }
-    const isWhite = (config.groupAdmin?.whiteQQ || []).includes(Number(e.user_id))
+    const isWhite = hasConfiguredId(config.groupAdmin?.whiteQQ, e.user_id)
     if (!e.message || e.isMaster || e.member?.is_owner || e.member?.is_admin || isWhite) {
       return false
     }
@@ -1064,7 +1068,7 @@ export class GroupVerifyCommands extends plugin {
     if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
-    if (!(config.groupAdmin?.groupVerify?.openGroup || []).includes(Number(e.group_id))) {
+    if (!hasConfiguredId(config.groupAdmin?.groupVerify?.openGroup, e.group_id)) {
       await e.reply('当前群未开启验证', true)
       return true
     }
@@ -1107,7 +1111,7 @@ export class GroupVerifyCommands extends plugin {
     if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
-    if (!(config.groupAdmin?.groupVerify?.openGroup || []).includes(Number(e.group_id))) {
+    if (!hasConfiguredId(config.groupAdmin?.groupVerify?.openGroup, e.group_id)) {
       await e.reply('当前群未开启验证', true)
       return true
     }
@@ -1130,12 +1134,15 @@ export class GroupVerifyCommands extends plugin {
   }
 
   async switchVerify(e) {
-    if (!isGroupAdminFeatureEnabled('verifyEnabled')) return false
+    if (!isGroupAdminFeatureEnabled('verifyEnabled')) {
+      await e.reply('请先在锅巴开启「群管模块」和「启用入群验证」')
+      return true
+    }
     if (!await checkPermission(e, 'admin', 'admin')) return true
     const config = getGroupConfig()
     const enable = /开启/.test(getMessageText(e))
     const list = config.groupAdmin.groupVerify.openGroup || []
-    const exists = list.includes(Number(e.group_id))
+    const exists = hasConfiguredId(list, e.group_id)
     if (exists && enable) {
       await e.reply('本群验证已处于开启状态')
       return true
