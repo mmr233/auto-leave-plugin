@@ -129,6 +129,21 @@ test('extracts multiple mentioned users', () => {
   assert.deepEqual(ids, [90009, 80008])
 })
 
+test('extracts users from quoted messages and CQ at text', async () => {
+  const quotedIds = await groupAdminUtils.getQuotedAtIds({
+    async getReply() {
+      return {
+        message: [
+          { type: 'at', data: { qq: '90009' } },
+          { type: 'at', data: { qq: '80008' } }
+        ]
+      }
+    }
+  })
+  assert.deepEqual(quotedIds, [90009, 80008])
+  assert.deepEqual(groupAdminUtils.extractAtIds({ raw_message: '[CQ:at,qq=70007]' }), [70007])
+})
+
 test('formats group request notices with labels and resolves applicant nickname', async () => {
   const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
   fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })

@@ -11,6 +11,7 @@ import {
   deleteGroupNotice,
   extractAtIds,
   getGroupNoticeList,
+  getQuotedAtIds,
   getMessageText,
   getQuotedMessage,
   kickGroupMember,
@@ -153,6 +154,9 @@ export class GroupAdminCommands extends plugin {
     if (!isGroupAdminFeatureEnabled('commandsEnabled')) return false
     if (!await checkPermission(e, 'admin', 'admin')) return true
     let qq = extractAtIds(e)
+    if (qq.length === 0) {
+      qq = await getQuotedAtIds(e)
+    }
     if (qq.length < 2) {
       qq = qq[0] || getMessageText(e).replace(/^[tT]|踢黑?/g, '').trim()
     }
@@ -1141,6 +1145,9 @@ export class GroupVerifyCommands extends plugin {
       return true
     }
     let qq = extractAtIds(e)[0]
+    if (!qq) {
+      qq = (await getQuotedAtIds(e))[0]
+    }
     if (!qq) {
       qq = getMessageText(e).replace(/^[tT]|绕过验证/g, '').trim()
     }

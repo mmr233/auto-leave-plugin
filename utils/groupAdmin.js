@@ -133,8 +133,8 @@ export function parseMuteCommand(e) {
 export function extractAtIds(e) {
   const message = Array.isArray(e?.message) ? e.message : []
   const ids = message
-    .filter(item => item?.type === 'at' && item?.qq && item.qq !== 'all')
-    .map(item => normalizeId(item.qq))
+    .filter(item => item?.type === 'at' && (item?.qq ?? item?.data?.qq) && (item?.qq ?? item?.data?.qq) !== 'all')
+    .map(item => normalizeId(item.qq ?? item.data.qq))
 
   if (ids.length > 0) {
     return ids
@@ -142,6 +142,13 @@ export function extractAtIds(e) {
 
   if (e?.at && e.at !== 'all') {
     return [normalizeId(e.at)]
+  }
+
+  const rawMessage = String(e?.raw_message || '')
+  const cqIds = [...rawMessage.matchAll(/\[CQ:at,[^\]]*qq=(\d+)[^\]]*\]/gi)]
+    .map(match => normalizeId(match[1]))
+  if (cqIds.length > 0) {
+    return cqIds
   }
 
   return []
@@ -625,6 +632,11 @@ export async function getQuotedMessage(e, { img = false, file = false } = {}) {
   }
 
   return source
+}
+
+export async function getQuotedAtIds(e) {
+  const source = await getQuotedMessage(e)
+  return source ? extractAtIds(source) : []
 }
 
 export function formatDuration(seconds) {

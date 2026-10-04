@@ -1,5 +1,5 @@
 import plugin from '../../../lib/plugins/plugin.js'
-import { extractAtIds } from '../utils/groupAdmin.js'
+import { extractAtIds, getQuotedAtIds } from '../utils/groupAdmin.js'
 import {
   addUsersToBlacklist,
   normalizeUserIds,
@@ -46,7 +46,9 @@ export class UserBlacklistHandler extends plugin {
 
     const text = String(e.msg || e.raw_message || '')
     const numericIds = text.replace(/^[tT]拉黑用户/, '').match(/\d+/g) || []
-    const userIds = normalizeUserIds([...extractAtIds(e), ...numericIds])
+    const currentAtIds = extractAtIds(e)
+    const quotedAtIds = currentAtIds.length === 0 && numericIds.length === 0 ? await getQuotedAtIds(e) : []
+    const userIds = normalizeUserIds([...currentAtIds, ...quotedAtIds, ...numericIds])
     if (userIds.length === 0) {
       await e.reply('请指定要拉黑的用户QQ号或@用户，可一次填写多个')
       return true
@@ -77,7 +79,9 @@ export class UserBlacklistHandler extends plugin {
 
     const text = String(e.msg || e.raw_message || '')
     const numericIds = text.replace(/^[tT]批量拉黑/, '').match(/\d+/g) || []
-    const userIds = normalizeUserIds([...extractAtIds(e), ...numericIds])
+    const currentAtIds = extractAtIds(e)
+    const quotedAtIds = currentAtIds.length === 0 && numericIds.length === 0 ? await getQuotedAtIds(e) : []
+    const userIds = normalizeUserIds([...currentAtIds, ...quotedAtIds, ...numericIds])
     if (userIds.length === 0) {
       await e.reply('请指定要拉黑的用户QQ号或@用户，可一次填写多个')
       return true
