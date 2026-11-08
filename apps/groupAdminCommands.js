@@ -88,7 +88,7 @@ export class GroupAdminCommands extends plugin {
       priority: 500,
       rule: [
         { reg: `^[tT]禁言\\s?((\\d+)\\s)?(${Numreg})?(${TimeUnitReg})?$`, fnc: 'muteMember' },
-        { reg: '^[tT]解禁(\\d+)?$', fnc: 'unmuteMember' },
+        { reg: '^[tT](解禁|解除禁言)(\\d+)?$', fnc: 'unmuteMember' },
         { reg: '^[tT]全(体|员)(禁言|解禁)$', fnc: 'muteAll' },
         { reg: '^[tT]踢黑?(\\d+)?$', fnc: 'kickMember' },
         { reg: '^[tT]批量踢黑(?:\\s+.*)?$', fnc: 'batchKickBlacklist' },
@@ -130,7 +130,7 @@ export class GroupAdminCommands extends plugin {
     if (!await checkPermission(e, 'admin', 'admin')) return true
     let qq = extractAtIds(e)
     if (qq.length < 2) {
-      qq = qq[0] || getMessageText(e).match(/[tT]解禁(\d+)/)?.[1]
+      qq = qq[0] || getMessageText(e).match(/[tT](?:解禁|解除禁言)(\d+)/)?.[1]
     }
     try {
       const res = await getService(e).muteMember(e.group_id, qq, e.user_id, 0, '秒', getGroupConfig())

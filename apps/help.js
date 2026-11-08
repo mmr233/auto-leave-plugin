@@ -274,7 +274,7 @@ export class AutoLeaveHelp extends plugin {
             icon: 51,
             title: '基础群管',
             desc: '禁言、解禁、全员禁言、踢人、设置管理。踢黑仅白名单群可用',
-            command: 't禁言 @用户 5分钟 / t解禁 @用户 / t全员禁言 / t踢 @用户 / t踢黑 @用户'
+            command: 't禁言 @用户 5分钟 / t解禁 @用户（或 t解除禁言 @用户） / t全员禁言 / t踢 @用户 / t踢黑 @用户'
           },
           {
             icon: 52,
