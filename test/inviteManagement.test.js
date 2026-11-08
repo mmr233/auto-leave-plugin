@@ -65,6 +65,25 @@ test('precheck rejects low member counts and accepts the threshold', () => {
   assert.equal(service.evaluatePrecheck({ memberCount: null }).passed, false)
 })
 
+test('ignores invitations whose target is another user', () => {
+  const event = {
+    self_id: '2701177370',
+    user_id: '3356510984',
+    invited_id: '3853386180'
+  }
+
+  assert.equal(inviteModule.getInviteTargetId(event), '3853386180')
+  assert.equal(inviteModule.isInviteForCurrentBot(event), false)
+  assert.equal(inviteModule.isInviteForCurrentBot({
+    ...event,
+    invited_id: '2701177370'
+  }), true)
+  assert.equal(inviteModule.isInviteForCurrentBot({
+    self_id: '2701177370',
+    user_id: '3356510984'
+  }), true)
+})
+
 test('pending requests are isolated by bot identity', () => {
   const botA = { self_id: '10001' }
   const botB = { self_id: '20002' }

@@ -79,6 +79,44 @@ export function getBotId(botOrEvent) {
   )
 }
 
+function getEventUserId(value) {
+  if (value && typeof value === 'object') {
+    return toId(value.user_id ?? value.userId ?? value.qq ?? value.uin ?? value.id)
+  }
+  return toId(value)
+}
+
+export function getInviteTargetId(event = {}) {
+  const candidates = [
+    event.invited_id,
+    event.invitedId,
+    event.invitee_id,
+    event.inviteeId,
+    event.target_user_id,
+    event.targetUserId,
+    event.target_id,
+    event.targetId,
+    event.invited,
+    event.invitee,
+    event.target
+  ]
+
+  for (const candidate of candidates) {
+    const id = getEventUserId(candidate)
+    if (id) {
+      return id
+    }
+  }
+
+  return ''
+}
+
+export function isInviteForCurrentBot(event = {}) {
+  const targetId = getInviteTargetId(event)
+  const botId = getBotId(event)
+  return !targetId || !botId || targetId === botId
+}
+
 function collectIds(value, keys = ['groupId', 'groupIdInput', 'groupIds', 'manageGroupId', 'userId', 'id']) {
   if (value === undefined || value === null || value === '') {
     return []
@@ -510,6 +548,10 @@ export class InviteManagementService {
       groupName: event?.group_name || '未知群名',
       memberCount: firstMemberCount(event?.member_count, event?.memberCount)
     }
+  }
+
+  isBotAlreadyInGroup(groupId) {
+    return !!getGroup(this.bot, groupId)
   }
 
   async getUserInfo(userId) {

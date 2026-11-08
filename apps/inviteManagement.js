@@ -4,7 +4,9 @@ import {
   REVIEW_MODE,
   REVIEW_MODE_LABEL,
   PRECHECK_MODE_LABEL,
-  PRECHECK_FAILURE_ACTION_LABEL
+  PRECHECK_FAILURE_ACTION_LABEL,
+  getInviteTargetId,
+  isInviteForCurrentBot
 } from '../model/inviteManagement.js'
 
 function getText(e) {
@@ -48,6 +50,14 @@ export class BotInviteRequestHandler extends plugin {
     const groupId = String(e.group_id || '')
     if (!groupId || !e.flag) {
       logger.warn('[自动退群] 收到群邀请事件，但缺少群号或 flag')
+      return false
+    }
+
+    const inviteTargetId = getInviteTargetId(e)
+    if (!isInviteForCurrentBot(e) || (!inviteTargetId && service.isBotAlreadyInGroup(groupId))) {
+      logger.info(
+        `[自动退群] 忽略群内成员邀请：群 ${groupId}，邀请人 ${e.user_id || '未知'}，被邀请人 ${inviteTargetId || '未知'}`
+      )
       return false
     }
 
