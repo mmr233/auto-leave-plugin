@@ -54,6 +54,9 @@ function toId(value) {
 }
 
 function toMemberCount(value) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
   const count = Number(value)
   return Number.isFinite(count) && count >= 0 ? count : null
 }
@@ -195,6 +198,22 @@ function normalizePendingRequests(value) {
   }).filter(item => item.groupId && item.flag)
 }
 
+function normalizeStayReviews(value) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => ({
+    requestId: String(item.requestId || ''),
+    botId: toId(item.botId),
+    groupId: toId(item.groupId),
+    groupName: String(item.groupName || '未知群名'),
+    memberCount: firstMemberCount(item.memberCount),
+    requestTime: Number(item.requestTime) || 0,
+    expiresAt: Number(item.expiresAt) || 0,
+    status: item.status === 'leaving' ? 'leaving' : 'pending',
+    msgIds: normalizeIdList(item.msgIds),
+    manageGroupIds: normalizeIdList(item.manageGroupIds)
+  })).filter(item => item.requestId && item.botId && item.groupId && item.expiresAt > 0)
+}
+
 export function normalizeApprovedGroupStates(value) {
   if (!Array.isArray(value)) {
     return []
@@ -229,7 +248,10 @@ export function getInviteConfig(rootConfig = Config.loadConfig()) {
     pendingRequests: normalizePendingRequests(raw.pendingRequests),
     approvedGroups: normalizeIdList(raw.approvedGroups),
     approvedGroupStates: normalizeApprovedGroupStates(raw.approvedGroupStates),
+    stayReviews: normalizeStayReviews(raw.stayReviews),
+    stayReviewMinutes: Math.max(1, Math.min(1440, Number(raw.stayReviewMinutes) || 10)),
     precheckMemberCount: raw.precheckMemberCount !== false,
+    excludeBotFromPrecheck: raw.excludeBotFromPrecheck !== false,
     precheckMode: Object.values(PRECHECK_MODE).includes(String(raw.precheckMode))
       ? String(raw.precheckMode)
       : PRECHECK_MODE.REJECT,
@@ -424,6 +446,9 @@ export class InviteManagementService {
       nickname: request.nickname || '未知用户',
       requestId: request.requestId || '',
       expireMinutes: this.config.requestExpireMinutes,
+      deadline: request.expiresAt
+        ? new Date(request.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+        : '',
       reviewMode: REVIEW_MODE_LABEL[this.config.reviewMode] || '',
       memberCount: memberCount === null ? '未知' : memberCount,
       minMemberCount: Number(this.rootConfig?.minMemberCount) || 0,
@@ -470,6 +495,10 @@ export class InviteManagementService {
     }
 
     const memberCount = firstMemberCount(groupInfo.memberCount)
+    const checkedCount = memberCount === null
+      ? null
+      : memberCount + (this.config.excludeBotFromPrecheck ? 0 : 1)
+    const countLabel = this.config.excludeBotFromPrecheck ? '群成员数量' : '机器人入群后预计群成员数量'
     const minMemberCount = Math.max(0, Number(this.rootConfig?.minMemberCount) || 0)
 
     if (this.config.precheckMode === PRECHECK_MODE.WARN) {
@@ -480,8 +509,8 @@ export class InviteManagementService {
         minMemberCount,
         reason: memberCount === null
           ? '无法获取群成员数量，仅记录提示'
-          : memberCount < minMemberCount
-            ? `群成员数量 ${memberCount}，低于要求 ${minMemberCount}`
+          : checkedCount < minMemberCount
+            ? `${countLabel} ${checkedCount}，低于要求 ${minMemberCount}`
             : ''
       }
     }
@@ -496,13 +525,13 @@ export class InviteManagementService {
       }
     }
 
-    if (memberCount < minMemberCount) {
+    if (checkedCount < minMemberCount) {
       return {
         status: 'failed',
         passed: false,
         memberCount,
         minMemberCount,
-        reason: `群成员数量 ${memberCount}，低于要求 ${minMemberCount}`
+        reason: `${countLabel} ${checkedCount}，低于要求 ${minMemberCount}`
       }
     }
 
@@ -608,7 +637,9 @@ export class InviteManagementService {
   }
 
   async sendReviewNotifications(request) {
-    const message = this.buildReviewMessage(request)
+    const message = request.kind === 'stay'
+      ? this.formatInviteMessage('stayReviewNotification', request)
+      : this.buildReviewMessage(request)
     const msgIds = []
     const manageGroupIds = []
 
@@ -627,29 +658,34 @@ export class InviteManagementService {
       }
     }
 
-    await this.notifyUsers(message, [request.userId])
+    const notifiedUserIds = await this.notifyUsers(message, [request.userId])
 
     let masterNotified = false
-    if (request.precheckStatus === 'failed' && this.config.notifyMasterOnPrecheckReject) {
-      masterNotified = await this.notifyMaster(this.buildPrecheckMessage(request))
+    if (request.kind === 'stay' || (request.precheckStatus === 'failed' && this.config.notifyMasterOnPrecheckReject)) {
+      masterNotified = await this.notifyMaster(request.kind === 'stay' ? message : this.buildPrecheckMessage(request))
     }
 
     return {
       ...request,
       msgIds,
       manageGroupIds,
+      notifiedUserIds,
       masterNotified
     }
   }
 
   async notifyUsers(message, exclude = []) {
     const excludeSet = new Set(exclude.map(item => String(item)))
+    const notified = []
     for (const user of this.config.notifyUsers) {
       if (!user.userId || excludeSet.has(String(user.userId))) {
         continue
       }
-      await sendPrivateMessage(this.bot, Number(user.userId) || user.userId, message)
+      if (await sendPrivateMessage(this.bot, Number(user.userId) || user.userId, message)) {
+        notified.push(user.userId)
+      }
     }
+    return notified
   }
 
   async notifyInviter(request, message) {
@@ -728,10 +764,9 @@ export class InviteManagementService {
     const reqId = String(requestId || '').trim()
 
     const matched = pending.filter(item => {
-      if (reqId && item.requestId === reqId) return true
-      if (msg && (item.msgIds || []).map(String).includes(msg)) return true
-      if (group && String(item.groupId) === group) return true
-      return false
+      if (reqId) return item.requestId === reqId
+      if (msg) return (item.msgIds || []).map(String).includes(msg)
+      return !!group && String(item.groupId) === group
     })
 
     return matched.sort((a, b) => Number(b.requestTime) - Number(a.requestTime))
@@ -745,6 +780,38 @@ export class InviteManagementService {
     const pending = this.cleanExpiredPendingRequests()
       .filter(item => item.requestId !== requestId)
     this.savePendingRequests(pending)
+  }
+
+  getStayReviews() {
+    return this.config.stayReviews.filter(item => item.botId === this.botId)
+  }
+
+  findStayReviews({ msgId = '', groupId = '', requestId = '' } = {}) {
+    const reviews = this.getStayReviews().filter(item => item.status === 'pending')
+    if (requestId) return reviews.filter(item => item.requestId === String(requestId))
+    if (msgId) return reviews.filter(item => item.msgIds.includes(String(msgId)))
+    return groupId ? reviews.filter(item => item.groupId === String(groupId)) : []
+  }
+
+  saveStayReview(review) {
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const reviews = normalizeStayReviews(rootConfig.inviteManagement.stayReviews)
+      .filter(item => !(item.botId === review.botId && item.groupId === review.groupId))
+    rootConfig.inviteManagement.stayReviews = [...reviews, review]
+    const saved = Config.saveConfig(rootConfig)
+    this.reload()
+    return saved
+  }
+
+  removeStayReview(review) {
+    const rootConfig = Config.loadConfig()
+    rootConfig.inviteManagement = rootConfig.inviteManagement || {}
+    const reviews = normalizeStayReviews(rootConfig.inviteManagement.stayReviews)
+    rootConfig.inviteManagement.stayReviews = reviews.filter(item => item.requestId !== review.requestId)
+    const saved = Config.saveConfig(rootConfig)
+    this.reload()
+    return saved
   }
 
   cleanExpiredApprovedGroups() {

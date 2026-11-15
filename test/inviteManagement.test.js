@@ -45,6 +45,7 @@ function createInviteConfig(overrides = {}) {
       approvedGroups: [],
       approvedGroupStates: [],
       precheckMemberCount: true,
+      excludeBotFromPrecheck: true,
       precheckMode: 'reject',
       precheckFailureAction: 'manual',
       notifyMasterOnPrecheckReject: true,
@@ -63,6 +64,53 @@ test('precheck rejects low member counts and accepts the threshold', () => {
   assert.equal(service.evaluatePrecheck({ memberCount: 49 }).passed, false)
   assert.equal(service.evaluatePrecheck({ memberCount: 50 }).passed, true)
   assert.equal(service.evaluatePrecheck({ memberCount: null }).passed, false)
+  assert.equal(service.evaluatePrecheck({ memberCount: null }).memberCount, null)
+  assert.match(service.evaluatePrecheck({ memberCount: null }).reason, /无法获取/)
+})
+
+test('precheck can count the invited bot without counting unknown membership', () => {
+  const service = new inviteModule.InviteManagementService({
+    bot: { self_id: '10001' }
+  })
+  service.rootConfig = { minMemberCount: 50 }
+  service.config = createInviteConfig({ excludeBotFromPrecheck: false })
+
+  assert.equal(service.evaluatePrecheck({ memberCount: 49 }).passed, true)
+  const failed = service.evaluatePrecheck({ memberCount: 48 })
+  assert.equal(failed.passed, false)
+  assert.equal(failed.memberCount, 48)
+  assert.match(failed.reason, /预计群成员数量 49/)
+  assert.equal(service.evaluatePrecheck({ memberCount: null }).passed, false)
+  assert.equal(service.evaluatePrecheck({ memberCount: 0 }).passed, false)
+
+  service.config = createInviteConfig({ excludeBotFromPrecheck: false, precheckMode: 'warn' })
+  assert.match(service.evaluatePrecheck({ memberCount: 48 }).reason, /预计群成员数量 49/)
+  assert.equal(service.evaluatePrecheck({ memberCount: 49 }).reason, '')
+})
+
+test('invite review notice shows the target group count or unknown', () => {
+  const service = new inviteModule.InviteManagementService({
+    bot: { self_id: '10001' }
+  })
+  assert.match(service.buildReviewMessage({ groupId: '123456', memberCount: 49 }), /当前人数：49/)
+  assert.match(service.buildReviewMessage({ groupId: '123456', memberCount: null }), /当前人数：未知/)
+})
+
+test('Guoba saves and reads the invited-bot counting option', async () => {
+  const { setConfigData } = await import(
+    `${pathToFileURL(path.join(testRoot, 'model/guoba/setConfigData.js')).href}?test=${Date.now()}`
+  )
+  const { Config } = await import(
+    pathToFileURL(path.join(testRoot, 'components/config.js')).href
+  )
+  const result = await setConfigData(
+    { 'inviteManagement.excludeBotFromPrecheck': false },
+    { Result: { ok: () => ({ ok: true }), error: message => ({ ok: false, message }) } }
+  )
+
+  assert.equal(result.ok, true)
+  assert.equal(Config.loadConfig().inviteManagement.excludeBotFromPrecheck, false)
+  assert.equal(inviteModule.getInviteConfig().excludeBotFromPrecheck, false)
 })
 
 test('ignores invitations whose target is another user', () => {
@@ -125,6 +173,30 @@ test('approved group states are isolated and consumed once', () => {
   assert.equal(serviceB.consumeApprovedGroup('456789'), false)
   assert.equal(serviceA.consumeApprovedGroup('456789'), true)
   assert.equal(serviceA.isApprovedGroup('456789'), false)
+})
+
+test('manual approval of a failed precheck grants one join-time exemption', async () => {
+  let approval = null
+  const bot = {
+    self_id: '60006',
+    async sendApi(action, params) {
+      assert.equal(action, 'set_group_add_request')
+      approval = params
+      return { data: { ok: true } }
+    }
+  }
+  const service = new inviteModule.InviteManagementService({ bot })
+  await service.approvePendingRequest({
+    groupId: '654321',
+    flag: 'low-member-invite',
+    subType: 'invite',
+    precheckStatus: 'failed'
+  }, true)
+
+  assert.equal(approval.approve, true)
+  assert.equal(service.isApprovedGroup('654321'), true)
+  assert.equal(service.consumeApprovedGroup('654321'), true)
+  assert.equal(service.isApprovedGroup('654321'), false)
 })
 
 test('bulk blacklist deduplicates IDs and reports existing entries', () => {

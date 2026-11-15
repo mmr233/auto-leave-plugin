@@ -137,10 +137,14 @@ export async function setConfigData(data, { Result }) {
         }
         config.groupAdmin.groupVerify.successMsgs = successMsgs
       }
+      if (config.groupAdmin.groupVerify?.failedJoinLimit !== undefined) {
+        config.groupAdmin.groupVerify.failedJoinLimit = Math.max(2, Math.min(20, Number(config.groupAdmin.groupVerify.failedJoinLimit) || 3))
+      }
     }
 
     if (config.inviteManagement) {
       const invite = config.inviteManagement
+      delete invite.stayReviews
       for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups', 'approvedGroups']) {
         if (invite[key] !== undefined) {
           invite[key] = normalizeGroupSelectValues(invite[key])
@@ -159,6 +163,9 @@ export async function setConfigData(data, { Result }) {
       if (invite.maxPendingRequests !== undefined) {
         invite.maxPendingRequests = Math.max(1, Number(invite.maxPendingRequests) || 20)
       }
+      if (invite.stayReviewMinutes !== undefined) {
+        invite.stayReviewMinutes = Math.max(1, Math.min(1440, Number(invite.stayReviewMinutes) || 10))
+      }
       if (invite.precheckMode !== undefined) {
         invite.precheckMode = ['reject', 'warn'].includes(String(invite.precheckMode))
           ? String(invite.precheckMode)
@@ -171,6 +178,9 @@ export async function setConfigData(data, { Result }) {
       }
       if (invite.precheckMemberCount !== undefined) {
         invite.precheckMemberCount = invite.precheckMemberCount !== false
+      }
+      if (invite.excludeBotFromPrecheck !== undefined) {
+        invite.excludeBotFromPrecheck = invite.excludeBotFromPrecheck !== false
       }
       if (invite.notifyMasterOnPrecheckReject !== undefined) {
         invite.notifyMasterOnPrecheckReject = invite.notifyMasterOnPrecheckReject !== false

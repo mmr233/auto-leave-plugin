@@ -9,6 +9,7 @@ import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
 import { initGroupAdminRuntime } from './groupAdminRuntime.js'
 import { InviteManagementService, normalizeIdList } from './inviteManagement.js'
+import { beginStayReview, cancelStayReviewForGroup, reconcileStayReviews } from './stayReview.js'
 
 // 处理标记，防止重复处理
 const processedGroups = new Set()
@@ -107,7 +108,8 @@ async function processGroupJoin(e) {
     clearRetryCount(groupId)
 
     setTimeout(() => {
-      checkAndLeaveGroupWithRetry(groupId, e.bot || Bot)
+      checkAndLeaveGroupWithRetry(groupId, e.bot || Bot, 0, beginStayReview)
+        .catch(err => logger.error(`[自动退群] 检查群 ${groupId} 人数失败: ${err.message}`))
     }, 5000)
   } catch (err) {
     logger.error('[自动退群] 处理群加入事件出错:', err)
@@ -202,12 +204,18 @@ export function initEventListener() {
   bot.on('notice.group.increase', (e) => {
     handleGroupIncrease(e)
   })
+  bot.on('notice.group.decrease', (e) => {
+    cancelStayReviewForGroup(e)
+  })
   // 监听群禁言事件
   bot.on('notice.group.ban', (e) => {
     import('./muteCheck.js').then(module => module.handleGroupMute(e))
   })
 
   eventListenerReady = true
+  reconcileStayReviews()
+  const recoveryTimer = setInterval(reconcileStayReviews, 30 * 1000)
+  recoveryTimer.unref?.()
 
   return true
 }

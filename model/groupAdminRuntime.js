@@ -1,5 +1,6 @@
 import { Config } from '../components/config.js'
 import { GroupAdminService } from './groupAdminConfig.js'
+import { clearVerificationFailures, isVerificationBlocked, recordFailedVerification } from './verifyFailures.js'
 import {
   approveGroupRequest,
   callBotApi,
@@ -346,7 +347,7 @@ async function sendVerifyMessage(e, userId, msg) {
   return sendByAvailable(e, [segment.at(userId), msg])
 }
 
-export async function startVerifyForUser(e, userId, groupId = e.group_id) {
+export async function startVerifyForUser(e, userId, groupId = e.group_id, admission = false) {
   const rootConfig = getConfig()
   if (!isGroupAdminFeatureEnabled(rootConfig, 'verifyEnabled')) {
     return false
@@ -382,6 +383,7 @@ export async function startVerifyForUser(e, userId, groupId = e.group_id) {
       await sendVerifyMessage(e, userId, '\n验证超时，移出群聊，请重新申请')
       await kickGroupMember(e, groupId, userId, false)
     } finally {
+      clearVerificationFailures(getEventBotId(e), groupId, userId)
       clearSession(groupId, userId)
     }
   }, Number(config.time || 300) * 1000)
@@ -403,6 +405,7 @@ export async function startVerifyForUser(e, userId, groupId = e.group_id) {
   }
 
   verifySessions.set(key, {
+    admission,
     remainTimes: Number(config.times || 7),
     nums: [m, n],
     operator,
@@ -417,8 +420,9 @@ export function hasVerifySession(groupId, userId) {
   return verifySessions.has(getVerifyKey(groupId, userId))
 }
 
-export async function passVerify(groupId, userId) {
+export async function passVerify(groupId, userId, botId = '') {
   clearSession(groupId, userId)
+  if (botId) clearVerificationFailures(botId, groupId, userId)
   return buildSuccessMessage(groupId)
 }
 
@@ -438,10 +442,12 @@ export async function handleVerifyAnswer(e) {
   const isFuzzy = config.mode === '模糊' && raw.includes(session.verifyCode)
   if (isAccurate || isFuzzy) {
     clearSession(e.group_id, e.user_id)
+    clearVerificationFailures(getEventBotId(e), e.group_id, e.user_id)
     await sendByAvailable(e, buildSuccessMessage(e.group_id))
     return true
   }
 
+  if (!/^\d+$/.test(raw)) return false
   session.remainTimes -= 1
   if (session.remainTimes > 0) {
     try {
@@ -455,7 +461,13 @@ export async function handleVerifyAnswer(e) {
 
   clearSession(e.group_id, e.user_id)
   await sendVerifyMessage(e, e.user_id, '\n验证失败，请重新申请')
-  await kickGroupMember(e, e.group_id, e.user_id, false)
+  const kicked = await kickGroupMember(e, e.group_id, e.user_id, false)
+  if (kicked && session.admission && config.autoBlacklistOnFailure) {
+    const failure = recordFailedVerification(getEventBotId(e), e.group_id, e.user_id, config.failedJoinLimit)
+    if (failure?.blocked) {
+      logger.info(`[自动退群] 用户 ${e.user_id} 连续 ${failure.count} 次入群验证失败，已加入群 ${e.group_id} 验证黑名单`)
+    }
+  }
   return true
 }
 
@@ -478,21 +490,32 @@ export async function reverifyUser(e, userId) {
 
 export async function handleGroupIncreaseForAdmin(e) {
   const approvedRequest = consumeApprovedGroupRequest(e)
+  const config = getConfig()
+  const verifyConfig = config.groupAdmin?.groupVerify || {}
+  const groupId = String(e.group_id || '')
+  if (isGroupAdminFeatureEnabled(config, 'verifyEnabled') &&
+    verifyConfig.autoBlacklistOnFailure &&
+    hasId(verifyConfig.openGroup, groupId) &&
+    isVerificationBlocked(getEventBotId(e), groupId, e.user_id)) {
+    if (['admin', 'owner'].includes(await getBotRole(e, groupId, e.group))) {
+      await kickGroupMember(e, groupId, e.user_id, false)
+      logger.info(`[自动退群] 已踢出群 ${groupId} 的验证黑名单用户 ${e.user_id}`)
+    }
+    return true
+  }
   if (approvedRequest?.skipVerify) {
     clearSession(e.group_id, e.user_id)
+    clearVerificationFailures(getEventBotId(e), e.group_id, e.user_id)
     logger.info(`[自动退群] 用户 ${e.user_id} 通过人工审批入群，群 ${e.group_id} 跳过本次入群验证`)
     return true
   }
 
-  const config = getConfig()
-  const groupId = String(e.group_id || '')
   if (!isGroupAdminFeatureEnabled(config, 'verifyEnabled')) {
     if (config.groupAdmin?.verifyEnabled === true && config.groupAdmin?.enabled !== true) {
       logger.warn(`[自动退群] 入群验证跳过：群管总开关未开启，群 ${groupId}`)
     }
     return false
   }
-  const verifyConfig = config.groupAdmin?.groupVerify || {}
   const botId = e.bot?.uin || e.self_id
 
   if (Number(e.user_id) === Number(botId)) {
@@ -520,7 +543,7 @@ export async function handleGroupIncreaseForAdmin(e) {
   }
 
   await sleep(Number(verifyConfig.delayTime ?? 2) * 1000)
-  const started = await startVerifyForUser(e, e.user_id, e.group_id)
+  const started = await startVerifyForUser(e, e.user_id, e.group_id, true)
   if (started) {
     logger.info(`[自动退群] 已触发入群验证：群 ${groupId}，用户 ${e.user_id}`)
   } else {
@@ -530,6 +553,9 @@ export async function handleGroupIncreaseForAdmin(e) {
 }
 
 export async function handleGroupDecreaseForAdmin(e) {
+  if (hasVerifySession(e.group_id, e.user_id)) {
+    clearVerificationFailures(getEventBotId(e), e.group_id, e.user_id)
+  }
   clearSession(e.group_id, e.user_id)
   return true
 }
@@ -557,6 +583,17 @@ export async function handleGroupRequestForAdmin(e) {
   }
   if (e.request_type !== 'group' || e.sub_type !== 'add') {
     return false
+  }
+
+  const verifyConfig = config.groupAdmin?.groupVerify || {}
+  if (isGroupAdminFeatureEnabled(config, 'verifyEnabled') &&
+    verifyConfig.autoBlacklistOnFailure &&
+    hasId(verifyConfig.openGroup, e.group_id) &&
+    isVerificationBlocked(getEventBotId(e), e.group_id, e.user_id)) {
+    if (['admin', 'owner'].includes(await getBotRole(e, e.group_id))) {
+      await approveGroupRequest(e, e, false, '连续入群验证失败')
+      return true
+    }
   }
 
   const shouldRejectBlacklistedUser = isGroupAdminFeatureEnabled(config, 'blacklistRequestRejectEnabled') &&

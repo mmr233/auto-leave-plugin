@@ -66,6 +66,14 @@ export const inviteManagementConfigSchema = [
     }
   },
   {
+    field: 'inviteManagement.stayReviewMinutes',
+    label: '已入群低人数审核时效（分钟）',
+    bottomHelpMessage: '机器人直接入群后人数不足时等待确认；到期未确认则退群，重启后按截止时间补处理',
+    component: 'InputNumber',
+    defaultValue: 10,
+    componentProps: { min: 1, max: 1440, step: 1 }
+  },
+  {
     component: 'Divider',
     label: '邀请前人数预检查',
     componentProps: {
@@ -77,6 +85,13 @@ export const inviteManagementConfigSchema = [
     field: 'inviteManagement.precheckMemberCount',
     label: '启用群人数预检查',
     bottomHelpMessage: '同意邀请前读取群成员数量，与基础配置中的最低群成员数比较；黑白名单邀请不受此项影响',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'inviteManagement.excludeBotFromPrecheck',
+    label: '预检查排除受邀机器人',
+    bottomHelpMessage: '开启时按机器人入群前的群人数比较；关闭时按现有人数加上本次受邀机器人比较，不会排除群内其他机器人',
     component: 'Switch',
     defaultValue: true
   },
@@ -96,7 +111,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.precheckFailureAction',
     label: '预检查失败动作',
-    bottomHelpMessage: '人数不足或无法读取人数时的处理动作；转人工审核可使用主人强制同意入口',
+    bottomHelpMessage: '人数不足或无法读取人数时的处理动作；转人工审核会在机器人入群前等待处理，同意后跳过本次进群人数检查',
     component: 'RadioGroup',
     defaultValue: 'manual',
     componentProps: {

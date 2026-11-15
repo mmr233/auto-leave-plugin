@@ -225,6 +225,20 @@ export const groupAdminConfigSchema = [
     }
   },
   {
+    field: 'groupAdmin.groupVerify.autoBlacklistOnFailure',
+    label: '连续验证失败自动踢黑',
+    bottomHelpMessage: '同一机器人、同一群、同一QQ连续多次用尽答题机会后加入该群验证黑名单；答对清零，超时不计数',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
+    field: 'groupAdmin.groupVerify.failedJoinLimit',
+    label: '验证失败入群次数',
+    component: 'InputNumber',
+    defaultValue: 3,
+    componentProps: { min: 2, max: 20, step: 1 }
+  },
+  {
     field: 'groupAdmin.groupVerify.remindAtLastMinute',
     label: '最后一分钟提醒',
     component: 'Switch',

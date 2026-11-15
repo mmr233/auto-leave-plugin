@@ -2,6 +2,7 @@ import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { GroupAdminService, GroupBannedWords, bannedWordMatchTypeMap, bannedWordPenaltyTypeMap } from '../model/groupAdminConfig.js'
 import { handleGroupRequestAction as processGroupRequestAction, hasVerifySession, passVerify, reverifyUser, startVerifyForUser } from '../model/groupAdminRuntime.js'
+import { clearVerificationFailures } from '../model/verifyFailures.js'
 import { addUsersToBlacklist } from '../utils/yunzaiConfig.js'
 import {
   TIME_UNIT,
@@ -1086,11 +1087,25 @@ export class GroupVerifyCommands extends plugin {
         { reg: '^[tT]重新验证(\\d+)?$', fnc: 'reverify' },
         { reg: '^[tT]重新验证从未发言的人$', fnc: 'reverifyNeverSpeak' },
         { reg: '^[tT]绕过验证(\\d+)?$', fnc: 'pass' },
+        { reg: '^[tT]验证解黑.*$', fnc: 'unblockVerification' },
         { reg: '^[tT](开启|关闭)验证$', fnc: 'switchVerify' },
         { reg: '^[tT]切换验证模式$', fnc: 'switchMode' },
         { reg: '^[tT]设置验证超时时间(\\d+)(s|秒)?$', fnc: 'setOvertime' }
       ]
     })
+  }
+
+  async unblockVerification(e) {
+    if (!await checkPermission(e, 'admin')) return true
+    const userId = extractAtIds(e)[0] || getMessageText(e).match(/^[tT]验证解黑\s*(\d+)$/)?.[1]
+    if (!userId) {
+      await e.reply('请艾特或输入要解除验证黑名单的QQ号')
+      return true
+    }
+    const botId = e.self_id || e.bot?.uin || e.bot?.self_id
+    const removed = clearVerificationFailures(botId, e.group_id, userId)
+    await e.reply(removed ? `已解除 ${userId} 的本群验证黑名单` : `${userId} 不在本群验证黑名单`)
+    return true
   }
 
   async reverify(e) {
@@ -1160,7 +1175,7 @@ export class GroupVerifyCommands extends plugin {
       await e.reply('目标群成员当前无需验证')
       return true
     }
-    const msg = await passVerify(e.group_id, qq)
+    const msg = await passVerify(e.group_id, qq, e.self_id || e.bot?.uin || e.bot?.self_id)
     await e.reply(msg)
     return true
   }

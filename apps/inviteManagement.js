@@ -8,6 +8,7 @@ import {
   getInviteTargetId,
   isInviteForCurrentBot
 } from '../model/inviteManagement.js'
+import { decideStayReview } from '../model/stayReview.js'
 
 function getText(e) {
   return String(e.raw_message || e.msg || '').trim()
@@ -189,7 +190,7 @@ export class BotInviteRequestHandler extends plugin {
         const savedRequest = await service.sendReviewNotifications(request)
         const hasMasterTarget = savedRequest.masterNotified
 
-        if (savedRequest.manageGroupIds.length === 0 && service.config.notifyUsers.length === 0 && !hasMasterTarget) {
+        if (savedRequest.manageGroupIds.length === 0 && savedRequest.notifiedUserIds.length === 0 && !hasMasterTarget) {
           await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
           logger.warn('[自动退群] 预检查未通过，但未配置可用的审核通知目标')
           return true
@@ -216,7 +217,7 @@ export class BotInviteRequestHandler extends plugin {
     const request = baseRequest
     const savedRequest = await service.sendReviewNotifications(request)
 
-    if (savedRequest.manageGroupIds.length === 0 && service.config.notifyUsers.length === 0) {
+    if (savedRequest.manageGroupIds.length === 0 && savedRequest.notifiedUserIds.length === 0) {
       await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
       logger.warn('[自动退群] 未配置可用的群邀请审核通知目标')
       return true
@@ -275,19 +276,19 @@ export class BotInviteConfirmHandler extends plugin {
       requestId = quoteText.match(/请求ID[:：]\s*([a-z0-9-]+)/i)?.[1] || requestId
     }
 
-    const hasPendingRequests = service.cleanExpiredPendingRequests().length > 0
-    const pendingMatches = service.findPendingRequests({
-      msgId: replyMsgId,
-      groupId,
-      requestId
-    })
-    const pendingRequest = pendingMatches.length > 1 && !replyMsgId && !requestId
-      ? null
-      : pendingMatches[0] || null
+    const hasPendingRequests = service.cleanExpiredPendingRequests().length > 0 || service.getStayReviews().length > 0
+    let pendingMatches = service.findPendingRequests({ msgId: replyMsgId, requestId })
+    let stayMatches = service.findStayReviews({ msgId: replyMsgId, requestId })
+    if (!pendingMatches.length && !stayMatches.length && groupId && (!replyMsgId || commandTarget)) {
+      pendingMatches = service.findPendingRequests({ groupId })
+      stayMatches = service.findStayReviews({ groupId })
+    }
+    const matches = [...pendingMatches, ...stayMatches]
+    const pendingRequest = matches.length === 1 ? matches[0] : null
 
     if (!pendingRequest) {
-      if (groupId && pendingMatches.length > 1) {
-        await e.reply('同一群存在多个待处理邀请，请引用对应的审核通知或使用请求ID处理')
+      if (groupId && matches.length > 1) {
+        await e.reply('同一群存在多个待处理审核，请引用对应通知或使用请求ID处理')
         return true
       }
 
@@ -311,6 +312,12 @@ export class BotInviteConfirmHandler extends plugin {
     }
 
     try {
+      if (pendingRequest.expiresAt) {
+        const decision = await decideStayReview(pendingRequest, approve, service.bot)
+        await e.reply(decision.message)
+        if (decision.ok) await service.notifyUsers(decision.message, [String(e.user_id || '')])
+        return true
+      }
       const reason = approve ? '' : service.formatInviteMessage('manualRejectReason', pendingRequest)
       await service.approvePendingRequest(pendingRequest, approve, reason)
       service.removePendingRequest(pendingRequest.requestId)
@@ -503,7 +510,9 @@ export class BotInviteManageCommands extends plugin {
       `通知用户：${service.config.notifyUsers.length ? service.config.notifyUsers.map(item => item.userId).join('、') : '未配置'}`,
       `待处理：${service.cleanExpiredPendingRequests().length} 条`,
       `有效期：${service.config.requestExpireMinutes} 分钟`,
+      `留群审核：${service.getStayReviews().length} 条（${service.config.stayReviewMinutes} 分钟）`,
       `人数预检查：${service.config.precheckMemberCount ? '开启' : '关闭'}`,
+      `预检查计入受邀机器人：${service.config.excludeBotFromPrecheck ? '否' : '是'}`,
       `预检查模式：${PRECHECK_MODE_LABEL[service.config.precheckMode] || service.config.precheckMode}`,
       `预检查失败：${PRECHECK_FAILURE_ACTION_LABEL[service.config.precheckFailureAction] || service.config.precheckFailureAction}`,
       `已批准群：${approvedGroups.length ? approvedGroups.join('、') : '无'}`

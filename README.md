@@ -113,11 +113,13 @@ cd auto-leave-plugin && pnpm install
 - `inviteManagement.reviewMode`: 审核模式，0 自动同意、1 关闭不处理、2 人工审核、3 自动拒绝
 - `inviteManagement.notifyGroups`: 审核通知群
 - `inviteManagement.notifyUsers`: 审核通知用户，锅巴中可从好友列表选择
+- `inviteManagement.stayReviewMinutes`: 低人数群直接入群后的留群审核时效，默认 10 分钟
 - `inviteManagement.blackGroups`: 邀请黑名单群
 - `inviteManagement.whiteGroups`: 邀请白名单群，会自动同意邀请，并在白名单判断中生效
 - `inviteManagement.approvedGroups`: 兼容旧版的一次性放行列表；新批准状态会按 Bot 隔离并自动过期
 - `inviteManagement.precheckMemberCount`: 是否在同意普通邀请前检查群成员数量
 - `inviteManagement.precheckMode`: 预检查模式，`reject` 判定低于最低人数为失败，`warn` 仅提示
+- `inviteManagement.excludeBotFromPrecheck`: 邀请前人数预检查是否排除本次受邀机器人（默认排除）；关闭后按现有人数加 1 比较，不排除群内其他机器人
 - `inviteManagement.precheckFailureAction`: 预检查失败时转人工、直接拒绝或继续普通规则
 - `inviteManagement.notifyMasterOnPrecheckReject`: 预检查失败时是否私聊通知主人
 
@@ -127,6 +129,8 @@ cd auto-leave-plugin && pnpm install
 - `groupAdmin.bannedWordsEnabled`: 启用群级违禁词
 - `groupAdmin.voteEnabled`: 启用群投票
 - `groupAdmin.verifyEnabled`: 启用入群验证；需同时开启 `groupAdmin.enabled`，并将群号加入 `groupAdmin.groupVerify.openGroup`
+- `groupAdmin.groupVerify.autoBlacklistOnFailure`: 连续用尽答题机会后自动加入本群验证黑名单，默认开启
+- `groupAdmin.groupVerify.failedJoinLimit`: 连续失败的入群次数阈值，默认 3 次；答对清零，超时不计数
 - `groupAdmin.noticeEnabled`: 启用加群申请通知
 - `groupAdmin.groupAddNotice.openGroup`: 开启加群申请通知的群聊
 - `groupAdmin.groupAddNotice.skipVerifyGroups`: 人工同意后跳过一次入群验证的群聊，必须先开启对应群的加群申请通知
@@ -144,7 +148,9 @@ cd auto-leave-plugin && pnpm install
 5. **邀请黑名单群**：机器人收到黑名单群邀请时会直接拒绝
 
 ### 机器人群邀请审核
-机器人收到群邀请时，会先按黑名单、白名单顺序处理，再按配置进行人数预检查和自动同意、自动拒绝、关闭不处理或人工审核。人工审核会向通知群和通知用户发送简洁文本，处理人可引用通知发送 `t确认加群` / `t拒绝加群`，也可直接发送 `t确认加群 群号` / `t拒绝加群 群号`。预检查失败转人工时，主人可以使用 `t强制同意加群 群号` 绕过检查；批准状态会在机器人进群事件中消费，避免本次进群再次触发人数退群。
+机器人收到群邀请卡片时，会先按黑名单、白名单顺序处理，再按配置进行人数预检查和自动同意、自动拒绝、关闭不处理或人工审核。人工审核通知显示目标群当前人数，处理人可引用通知发送 `t确认加群` / `t拒绝加群`，也可发送 `t确认加群 群号` / `t拒绝加群 群号`。预检查失败转人工时，机器人尚未进群；批准状态会在进群事件中消费，跳过本次人数退群。机器人直接进入低人数群时，会发送单独的留群审核通知，沿用相同命令：同意留群，拒绝立即退群；超过 `stayReviewMinutes` 仍未同意则退群。截止时间持久保存，重启后会重新检查并处理已到期的审核。未启用人工审核或没有可用通知目标时，仍按原规则退群。
+
+同一机器人在同一群内对同一 QQ 连续多次入群并用尽验证答题机会时，会加入该群的验证黑名单并踢出；后续进群会再次踢出，申请入群会被拒绝。每次入群最多计一次；手动重新验证不计入入群次数。答对验证题会清零连续失败记录；超时和未完成验证的进退群不计数。群管理员可在群内使用 `t验证解黑 @用户` 解除该群的验证黑名单；此名单不会写入 Yunzai 全局用户黑名单。
 
 邀请白名单群用于邀请阶段自动同意；生效时也会视为白名单群，进群后跳过人数检查。白名单群管理里的群聊白名单是全局白名单入口，适合长期管理不会自动退群、违禁词管理等行为。
 

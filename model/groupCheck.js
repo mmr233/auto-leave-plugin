@@ -85,7 +85,7 @@ async function sendNotificationToMaster(groupId, groupName, reason, bot) {
 /**
  * 检查并退群（带重试）
  */
-export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0) {
+export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, onInsufficient = null) {
   const config = Config.loadConfig()
   const maxRetryCount = config.maxRetryCount || 3
   const retryDelay = config.retryDelay || 10000
@@ -111,7 +111,7 @@ export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0) 
     if (retryCount < maxRetryCount - 1) {
       logger.info(`[自动退群] 将在 ${retryDelay / 1000} 秒后重试获取群 ${groupId} 成员数量`)
       await sleep(retryDelay)
-      return checkAndLeaveGroupWithRetry(groupId, bot, retryCount + 1)
+      return checkAndLeaveGroupWithRetry(groupId, bot, retryCount + 1, onInsufficient)
     } else {
       // 重试3次失败，执行错误退群
       logger.error(`[自动退群] 群 ${groupId} 重试 ${maxRetryCount} 次后仍无法获取成员数量，执行错误退群`)
@@ -131,6 +131,9 @@ export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0) 
   logger.info(`[自动退群] 群 ${groupId} 当前成员数量: ${memberCount}`)
 
   if (memberCount < config.minMemberCount) {
+    if (onInsufficient && await onInsufficient(groupId, memberCount, bot)) {
+      return true
+    }
     const message = config.leaveMessage
       .replace('{memberCount}', memberCount)
       .replace('{minMemberCount}', config.minMemberCount)
