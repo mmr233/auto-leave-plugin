@@ -55,6 +55,13 @@ export const inviteManagementConfigSchema = [
     }
   },
   {
+    field: 'inviteManagement.notifyInviterOnExpiry',
+    label: '审核到期通知邀请者',
+    bottomHelpMessage: '机器人加群邀请在有效期内未被处理时，私聊邀请者告知本次审核已结束；不会主动拒绝 QQ 邀请',
+    component: 'Switch',
+    defaultValue: true
+  },
+  {
     field: 'inviteManagement.maxPendingRequests',
     label: '最大待处理数',
     component: 'InputNumber',

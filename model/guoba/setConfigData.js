@@ -160,6 +160,9 @@ export async function setConfigData(data, { Result }) {
       if (invite.requestExpireMinutes !== undefined) {
         invite.requestExpireMinutes = Math.max(1, Number(invite.requestExpireMinutes) || 5)
       }
+      if (invite.notifyInviterOnExpiry !== undefined) {
+        invite.notifyInviterOnExpiry = invite.notifyInviterOnExpiry !== false
+      }
       if (invite.maxPendingRequests !== undefined) {
         invite.maxPendingRequests = Math.max(1, Number(invite.maxPendingRequests) || 20)
       }

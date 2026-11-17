@@ -510,6 +510,7 @@ export class BotInviteManageCommands extends plugin {
       `通知用户：${service.config.notifyUsers.length ? service.config.notifyUsers.map(item => item.userId).join('、') : '未配置'}`,
       `待处理：${service.cleanExpiredPendingRequests().length} 条`,
       `有效期：${service.config.requestExpireMinutes} 分钟`,
+      `到期通知邀请者：${service.config.notifyInviterOnExpiry ? '开启' : '关闭'}`,
       `留群审核：${service.getStayReviews().length} 条（${service.config.stayReviewMinutes} 分钟）`,
       `人数预检查：${service.config.precheckMemberCount ? '开启' : '关闭'}`,
       `预检查计入受邀机器人：${service.config.excludeBotFromPrecheck ? '否' : '是'}`,

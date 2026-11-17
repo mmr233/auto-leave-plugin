@@ -8,7 +8,7 @@ import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
 import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
 import { initGroupAdminRuntime } from './groupAdminRuntime.js'
-import { InviteManagementService, normalizeIdList } from './inviteManagement.js'
+import { InviteManagementService, normalizeIdList, reconcilePendingInviteRequests } from './inviteManagement.js'
 import { beginStayReview, cancelStayReviewForGroup, reconcileStayReviews } from './stayReview.js'
 
 // 处理标记，防止重复处理
@@ -214,7 +214,11 @@ export function initEventListener() {
 
   eventListenerReady = true
   reconcileStayReviews()
-  const recoveryTimer = setInterval(reconcileStayReviews, 30 * 1000)
+  reconcilePendingInviteRequests()
+  const recoveryTimer = setInterval(() => {
+    reconcileStayReviews()
+    reconcilePendingInviteRequests()
+  }, 30 * 1000)
   recoveryTimer.unref?.()
 
   return true

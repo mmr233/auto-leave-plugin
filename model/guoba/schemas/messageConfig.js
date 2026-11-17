@@ -145,6 +145,15 @@ export const messageConfigSchema = [
     }
   },
   {
+    field: 'inviteMessages.inviteExpired',
+    label: '邀请审核到期通知',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: {
+      type: 'textarea'
+    }
+  },
+  {
     field: 'inviteMessages.resultApproved',
     label: '同意结果回复',
     bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,

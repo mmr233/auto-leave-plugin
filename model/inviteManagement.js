@@ -44,6 +44,42 @@ export const PRECHECK_FAILURE_ACTION_LABEL = {
   [PRECHECK_FAILURE_ACTION.CONTINUE]: '继续按普通规则处理'
 }
 
+const pendingExpiryTimers = new Map()
+
+function pendingExpiryKey(request) {
+  return `${request.botId}:${request.requestId}`
+}
+
+function cancelPendingExpiry(request) {
+  const key = pendingExpiryKey(request)
+  clearTimeout(pendingExpiryTimers.get(key)?.timer)
+  pendingExpiryTimers.delete(key)
+}
+
+function schedulePendingExpiry(service, request) {
+  const key = pendingExpiryKey(request)
+  const deadline = Number(request.requestTime) + service.expireMs
+  if (pendingExpiryTimers.get(key)?.deadline === deadline) return
+  cancelPendingExpiry(request)
+  const timer = setTimeout(() => {
+    pendingExpiryTimers.delete(key)
+    new InviteManagementService({ bot: service.bot }).cleanExpiredPendingRequests()
+  }, Math.max(0, deadline - Date.now()))
+  timer.unref?.()
+  pendingExpiryTimers.set(key, { deadline, timer })
+}
+
+export function reconcilePendingInviteRequests() {
+  const requests = normalizePendingRequests(Config.loadConfig().inviteManagement?.pendingRequests)
+  for (const botId of new Set(requests.map(item => item.botId).filter(Boolean))) {
+    const root = globalThis.Bot
+    const bot = root?.[botId] || root
+    if (String(bot?.uin || bot?.self_id || '') !== botId) continue
+    const service = new InviteManagementService({ bot })
+    service.cleanExpiredPendingRequests()
+  }
+}
+
 function unique(list) {
   return [...new Set(list)]
 }
@@ -239,6 +275,7 @@ export function getInviteConfig(rootConfig = Config.loadConfig()) {
     enabled: raw.enabled !== false,
     reviewMode: Object.values(REVIEW_MODE).includes(mode) ? mode : REVIEW_MODE.MANUAL,
     requestExpireMinutes: Math.max(1, Number(raw.requestExpireMinutes) || 5),
+    notifyInviterOnExpiry: raw.notifyInviterOnExpiry !== false,
     maxPendingRequests: Math.max(1, Number(raw.maxPendingRequests) || 20),
     allowInviterConfirm: raw.allowInviterConfirm !== false,
     notifyGroups: normalizeIdList(raw.notifyGroups),
@@ -748,15 +785,38 @@ export class InviteManagementService {
     if (pending.length !== currentPending.length || needsBotMigration) {
       this.savePendingRequests(pending)
     }
+    const remaining = new Set(pending.map(item => item.requestId))
+    for (const request of currentPending) {
+      if (remaining.has(request.requestId)) continue
+      cancelPendingExpiry({ ...request, botId: request.botId || this.botId })
+    }
+    for (const request of pending) {
+      schedulePendingExpiry(this, request.botId ? request : { ...request, botId: this.botId })
+    }
+    if (this.config.notifyInviterOnExpiry) {
+      for (const request of currentPending) {
+        if (remaining.has(request.requestId)) continue
+        this.notifyInviter(request, this.formatInviteMessage('inviteExpired', request))
+          .then(sent => {
+            if (!sent) logger.warn(`[自动退群] 无法向邀请者发送群 ${request.groupId} 的审核到期通知`)
+          })
+          .catch(err => logger.error(`[自动退群] 发送群邀请审核到期通知失败: ${err.message}`))
+      }
+    }
     return pending
   }
 
   addPendingRequest(request) {
     let pending = this.cleanExpiredPendingRequests()
-      .filter(item => item.flag !== request.flag)
+      .filter(item => {
+        if (item.flag !== request.flag) return true
+        cancelPendingExpiry({ ...item, botId: item.botId || this.botId })
+        return false
+      })
 
     while (pending.length >= this.config.maxPendingRequests) {
-      pending.shift()
+      const removed = pending.shift()
+      cancelPendingExpiry({ ...removed, botId: removed.botId || this.botId })
     }
 
     pending.push({
@@ -765,6 +825,7 @@ export class InviteManagementService {
       status: request.status || (request.precheckStatus === 'failed' ? 'precheck_failed' : 'pending')
     })
     this.savePendingRequests(pending)
+    schedulePendingExpiry(this, pending.at(-1))
   }
 
   findPendingRequests({ msgId = '', groupId = '', requestId = '' } = {}) {
@@ -790,6 +851,7 @@ export class InviteManagementService {
     const pending = this.cleanExpiredPendingRequests()
       .filter(item => item.requestId !== requestId)
     this.savePendingRequests(pending)
+    cancelPendingExpiry({ botId: this.botId, requestId })
   }
 
   getStayReviews() {
