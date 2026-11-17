@@ -545,28 +545,38 @@ export class InviteManagementService {
   }
 
   async getGroupInfo(groupId, event = null) {
-    try {
-      const res = await callBotApi(this.bot, 'get_group_info', {
-        group_id: Number(groupId),
-        no_cache: true
-      })
-      const data = getApiData(res)
-      return {
-        groupId: String(data.group_id || groupId),
-        groupName: data.group_name || data.groupName || data.name || event?.group_name || '未知群名',
-        memberCount: firstMemberCount(data.member_count, data.memberCount, event?.member_count, event?.memberCount)
+    let groupName = event?.group_name || '未知群名'
+    const eventMemberCount = firstMemberCount(event?.member_count, event?.memberCount)
+    for (const noCache of [true, false]) {
+      try {
+        const res = await callBotApi(this.bot, 'get_group_info', {
+          group_id: Number(groupId),
+          no_cache: noCache
+        })
+        if (res?.status === 'failed' || (res?.retcode !== undefined && Number(res.retcode) !== 0)) {
+          throw new Error(res?.message || '接口返回失败')
+        }
+        const data = getApiData(res)
+        groupName = data.group_name || data.groupName || data.name || groupName
+        const memberCount = firstMemberCount(data.member_count, data.memberCount)
+        if (memberCount !== null && memberCount > 0) {
+          return { groupId: String(data.group_id || groupId), groupName, memberCount }
+        }
+      } catch (err) {
+        logger.debug?.(`[自动退群] 获取邀请群信息失败 (no_cache=${noCache}): ${err.message}`)
       }
-    } catch (err) {
-      logger.debug?.(`[自动退群] 获取邀请群信息失败: ${err.message}`)
     }
 
     try {
       const group = getGroup(this.bot, groupId)
       const info = group?.info || group
+      const memberCount = firstMemberCount(info?.member_count, info?.memberCount)
       return {
         groupId: String(groupId),
-        groupName: info?.group_name || info?.groupName || info?.name || event?.group_name || '未知群名',
-        memberCount: firstMemberCount(info?.member_count, info?.memberCount, event?.member_count, event?.memberCount)
+        groupName: info?.group_name || info?.groupName || info?.name || groupName,
+        memberCount: memberCount > 0
+          ? memberCount
+          : (eventMemberCount > 0 ? eventMemberCount : null)
       }
     } catch (err) {
       logger.debug?.(`[自动退群] 读取邀请群缓存失败: ${err.message}`)
@@ -574,8 +584,8 @@ export class InviteManagementService {
 
     return {
       groupId: String(groupId),
-      groupName: event?.group_name || '未知群名',
-      memberCount: firstMemberCount(event?.member_count, event?.memberCount)
+      groupName,
+      memberCount: eventMemberCount > 0 ? eventMemberCount : null
     }
   }
 

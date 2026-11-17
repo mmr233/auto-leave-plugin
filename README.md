@@ -131,8 +131,8 @@ cd auto-leave-plugin && pnpm install
 - `groupAdmin.verifyEnabled`: 启用入群验证；需同时开启 `groupAdmin.enabled`，并将群号加入 `groupAdmin.groupVerify.openGroup`
 - `groupAdmin.groupVerify.autoBlacklistOnFailure`: 连续用尽答题机会后自动加入本群验证黑名单，默认开启
 - `groupAdmin.groupVerify.failedJoinLimit`: 连续失败的入群次数阈值，默认 3 次；答对清零，超时不计数
-- `groupAdmin.noticeEnabled`: 启用加群申请通知
-- `groupAdmin.groupAddNotice.openGroup`: 开启加群申请通知的群聊
+- `groupAdmin.noticeEnabled`: 加群申请通知总开关；还需在 `openGroup` 选择群聊
+- `groupAdmin.groupAddNotice.openGroup`: 仅在所选群收到加群申请时通知该群本身，不会将其他群的申请转发到所选群
 - `groupAdmin.groupAddNotice.skipVerifyGroups`: 人工同意后跳过一次入群验证的群聊，必须先开启对应群的加群申请通知
 - `groupAdmin.announceEnabled`: 启用群公告命令
 - `groupAdmin.scheduledMuteEnabled`: 启用定时禁言任务
@@ -155,7 +155,7 @@ cd auto-leave-plugin && pnpm install
 邀请白名单群用于邀请阶段自动同意；生效时也会视为白名单群，进群后跳过人数检查。白名单群管理里的群聊白名单是全局白名单入口，适合长期管理不会自动退群、违禁词管理等行为。
 
 ### 群加群申请审批
-开启本群加群申请通知后，机器人会登记申请通知消息。群主、管理员或主人引用该通知发送 `t同意入群`，机器人会调用原申请的 `flag` 同意入群；发送 `t拒绝入群` 可拒绝申请。审批状态按 Bot、群聊和用户关联，并在处理或过期后失效。配置在 `groupAdmin.groupAddNotice.skipVerifyGroups` 中的群聊，人工同意后只跳过本次入群验证，未配置的群聊仍按正常入群验证流程处理。
+开启本群加群申请通知后，机器人只把该群自己的申请发回该群，不会把其他群的申请转发进来。机器人会登记申请通知消息；群主、管理员或主人引用该通知发送 `t同意入群`，机器人会调用原申请的 `flag` 同意入群；发送 `t拒绝入群` 可拒绝申请。审批状态按 Bot、群聊和用户关联，并在处理或过期后失效。配置在 `groupAdmin.groupAddNotice.skipVerifyGroups` 中的群聊，人工同意后只跳过本次入群验证，未配置的群聊仍按正常入群验证流程处理。
 
 ### 白名单群管理
 白名单群聊不受上述退群条件影响，但启用了违禁词管理功能：

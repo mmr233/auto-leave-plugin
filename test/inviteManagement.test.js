@@ -96,6 +96,62 @@ test('invite review notice shows the target group count or unknown', () => {
   assert.match(service.buildReviewMessage({ groupId: '123456', memberCount: null }), /当前人数：未知/)
 })
 
+test('SnowLuma invite group count retries without no_cache after a roster failure', async () => {
+  const calls = []
+  const service = new inviteModule.InviteManagementService({
+    bot: {
+      self_id: '10001',
+      async sendApi(action, params) {
+        assert.equal(action, 'get_group_info')
+        calls.push(params.no_cache)
+        if (params.no_cache) throw new Error('group roster refresh failed')
+        return { status: 'ok', retcode: 0, data: {
+          group_id: 123456,
+          group_name: '目标群',
+          member_count: 58
+        } }
+      }
+    }
+  })
+
+  assert.deepEqual(await service.getGroupInfo('123456'), {
+    groupId: '123456',
+    groupName: '目标群',
+    memberCount: 58
+  })
+  assert.deepEqual(calls, [true, false])
+})
+
+test('SnowLuma placeholder group count is not treated as an empty group', async () => {
+  const calls = []
+  let cachedCount = 0
+  const service = new inviteModule.InviteManagementService({
+    bot: {
+      self_id: '10001',
+      async sendApi(action, params) {
+        calls.push(params.no_cache)
+        return { status: 'ok', data: {
+          group_id: 123456,
+          group_name: params.no_cache ? '' : (cachedCount ? '目标群' : ''),
+          member_count: params.no_cache ? 0 : cachedCount,
+          max_member_count: params.no_cache ? 0 : (cachedCount ? 200 : 0)
+        } }
+      }
+    }
+  })
+  const info = await service.getGroupInfo('123456', { group_name: '邀请目标' })
+  assert.deepEqual(calls, [true, false])
+  assert.equal(info.groupName, '邀请目标')
+  assert.equal(info.memberCount, null)
+  assert.equal(service.evaluatePrecheck(info).passed, false)
+  calls.length = 0
+  cachedCount = 57
+  const retried = await service.getGroupInfo('123456')
+  assert.deepEqual(calls, [true, false])
+  assert.equal(retried.groupName, '目标群')
+  assert.equal(retried.memberCount, 57)
+})
+
 test('Guoba saves and reads the invited-bot counting option', async () => {
   const { setConfigData } = await import(
     `${pathToFileURL(path.join(testRoot, 'model/guoba/setConfigData.js')).href}?test=${Date.now()}`
@@ -291,6 +347,59 @@ test('formats group request notices with labels and resolves applicant nickname'
   assert.match(text, /QQ号：99999/)
   assert.match(text, /申请消息：哈哈哈哈我来了/)
   assert.equal(sentMessage.some(item => item?.type === 'image'), true)
+})
+
+test('group request notices and quoted approvals stay within enabled groups', async () => {
+  const runtimeConfigPath = path.join(tempRoot, 'data', '自动退群', 'config', 'config.json')
+  fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true })
+  fs.writeFileSync(runtimeConfigPath, JSON.stringify({
+    groupAdmin: {
+      enabled: true,
+      noticeEnabled: true,
+      groupAddNotice: { openGroup: [123456] }
+    }
+  }))
+
+  const sentTo = []
+  const bot = {
+    self_id: 'scope-test-bot',
+    pickGroup(groupId) {
+      return {
+        async sendMsg() {
+          sentTo.push(groupId)
+          return { message_id: 97001 }
+        }
+      }
+    },
+    async sendApi(action) {
+      assert.equal(action, 'get_stranger_info')
+      return { data: { nickname: '申请人' } }
+    }
+  }
+  const runtime = await import(
+    `${pathToFileURL(path.join(testRoot, 'model/groupAdminRuntime.js')).href}?scope-test=${Date.now()}`
+  )
+  const event = {
+    bot,
+    self_id: 'scope-test-bot',
+    request_type: 'group',
+    sub_type: 'add',
+    user_id: 99999,
+    flag: 'scope-flag'
+  }
+  assert.equal(await runtime.handleGroupRequestForAdmin({ ...event, group_id: 654321 }), false)
+  assert.deepEqual(sentTo, [])
+  assert.equal(await runtime.handleGroupRequestForAdmin({ ...event, group_id: 123456 }), true)
+  assert.deepEqual(sentTo, [123456])
+  const otherGroupAction = await runtime.handleGroupRequestAction({
+    bot,
+    self_id: 'scope-test-bot',
+    group_id: 654321,
+    user_id: 88888,
+    isMaster: true
+  }, { message_id: 97001 })
+  assert.equal(otherGroupAction.ok, false)
+  assert.match(otherGroupAction.message, /未找到对应的加群申请/)
 })
 
 test('approves quoted group requests and consumes skip-verification state once', async () => {

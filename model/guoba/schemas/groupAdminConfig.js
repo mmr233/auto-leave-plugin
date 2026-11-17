@@ -53,6 +53,7 @@ export const groupAdminConfigSchema = [
   {
     field: 'groupAdmin.noticeEnabled',
     label: '启用加群申请通知',
+    bottomHelpMessage: '总开关；还需在下方选择开启通知的群聊。只通知申请所属群，不转发到其他群',
     component: 'Switch',
     defaultValue: true
   },
@@ -298,11 +299,11 @@ export const groupAdminConfigSchema = [
   },
   {
     field: 'groupAdmin.groupAddNotice.openGroup',
-    label: '通知发送群聊',
-    bottomHelpMessage: '收到加群申请时，将申请信息转发到这些群',
+    label: '开启申请通知的群聊',
+    bottomHelpMessage: '仅所选群自身的加群申请会通知到该群；其他群的申请不会转发到这里',
     component: 'GSelectGroup',
     componentProps: {
-      placeholder: '点击选择需要接收申请通知的群聊',
+      placeholder: '选择需要开启申请通知的群聊',
       allowInput: true
     }
   },
