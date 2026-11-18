@@ -426,6 +426,16 @@ export async function passVerify(groupId, userId, botId = '') {
   return buildSuccessMessage(groupId)
 }
 
+function getVerifyAnswerText(e) {
+  const text = Array.isArray(e.message)
+    ? e.message
+      .filter(item => item?.type === 'text')
+      .map(item => item.text ?? item.data?.text ?? '')
+      .join('')
+    : String(e.raw_message || e.msg || '')
+  return text.replace(/\[CQ:[^\]]+\]/gi, '').trim()
+}
+
 export async function handleVerifyAnswer(e) {
   const rootConfig = getConfig()
   if (!isGroupAdminFeatureEnabled(rootConfig, 'verifyEnabled')) {
@@ -437,7 +447,7 @@ export async function handleVerifyAnswer(e) {
   if (!session) {
     return false
   }
-  const raw = String(e.raw_message || e.msg || '').trim()
+  const raw = getVerifyAnswerText(e)
   const isAccurate = config.mode === '精确' && raw === session.verifyCode
   const isFuzzy = config.mode === '模糊' && raw.includes(session.verifyCode)
   if (isAccurate || isFuzzy) {

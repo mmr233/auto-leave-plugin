@@ -579,12 +579,53 @@ test('group verification runtime registers listeners and accepts a correct answe
 
   await runtime.handleVerifyAnswer({
     ...event,
-    raw_message: String(expected),
-    msg: String(expected),
+    raw_message: `[CQ:reply,id=${expected}][CQ:at,qq=10001] 999`,
+    message: [
+      { type: 'reply', data: { id: String(expected) } },
+      { type: 'at', data: { qq: '10001' } },
+      { type: 'text', data: { text: ' 999' } }
+    ],
+    message_id: 99
+  })
+  assert.equal(runtime.hasVerifySession(123456, 99999), true)
+
+  await runtime.handleVerifyAnswer({
+    ...event,
+    raw_message: `[CQ:reply,id=99][CQ:at,qq=10001] ${expected}`,
+    message: [
+      { type: 'reply', data: { id: '99' } },
+      { type: 'at', data: { qq: '10001' } },
+      { type: 'text', data: { text: ` ${expected}` } }
+    ],
     message_id: 100
   })
   assert.equal(runtime.hasVerifySession(123456, 99999), false)
   assert.ok(replies.some(message => message === '验证成功'))
+
+  for (const kind of ['at', 'reply', 'raw']) {
+    await runtime.startVerifyForUser(event, 99999)
+    const nextPrompt = String(replies.at(-1)?.[1] || '')
+    const nextMatch = nextPrompt.match(/「(\d+) ([+-]) (\d+)」/)
+    assert.ok(nextMatch)
+    const answer = nextMatch[2] === '+'
+      ? Number(nextMatch[1]) + Number(nextMatch[3])
+      : Number(nextMatch[1]) - Number(nextMatch[3])
+    const prefix = kind === 'at'
+      ? '[CQ:at,qq=10001]'
+      : kind === 'raw' ? '[CQ:reply,id=99][CQ:at,qq=10001]' : '[CQ:reply,id=99]'
+    await runtime.handleVerifyAnswer({
+      ...event,
+      raw_message: `${prefix} ${answer}`,
+      ...(kind === 'raw' ? {} : {
+        message: [
+          { type: kind, data: kind === 'at' ? { qq: '10001' } : { id: '99' } },
+          { type: 'text', data: { text: ` ${answer}` } }
+        ]
+      }),
+      message_id: 101
+    })
+    assert.equal(runtime.hasVerifySession(123456, 99999), false)
+  }
 
   fs.writeFileSync(runtimeConfigPath, JSON.stringify({
     groupAdmin: {
