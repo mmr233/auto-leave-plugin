@@ -2,6 +2,7 @@ import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { addToWhitelist, removeFromWhitelist, addToBlacklist, removeFromBlacklist } from '../model/listManager.js'
 import { clearMuteCount } from '../model/muteCheck.js'
+import { getCommandText, prepareCommandRules } from '../utils/command.js'
 
 /**
  * 白名单管理
@@ -28,6 +29,7 @@ export class WhitelistHandler extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async addWhitelist(e) {
@@ -36,7 +38,7 @@ export class WhitelistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]拉白\s*(\d+)?$/)
+    const match = getCommandText(e).match(/^[tT]拉白\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {
@@ -77,7 +79,7 @@ export class WhitelistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]取消拉白\s*(\d+)?$/)
+    const match = getCommandText(e).match(/^[tT]取消拉白\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {
@@ -117,6 +119,7 @@ export class BlacklistHandler extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async addBlacklist(e) {
@@ -125,7 +128,7 @@ export class BlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]拉黑群\s*(\d+)?$/)
+    const match = getCommandText(e).match(/^[tT]拉黑群\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {
@@ -163,7 +166,7 @@ export class BlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]取消拉黑群\s*(\d+)?$/)
+    const match = getCommandText(e).match(/^[tT]取消拉黑群\s*(\d+)?$/)
     const groupId = match?.[1] || e.group_id
 
     if (!groupId) {

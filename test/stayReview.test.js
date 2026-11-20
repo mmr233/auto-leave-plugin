@@ -13,6 +13,7 @@ const { checkAndLeaveGroupWithRetry } = await import('../model/groupCheck.js')
 const { beginStayReview, decideStayReview, expireStayReview, reconcileStayReviews } = await import('../model/stayReview.js')
 
 const messages = []
+const privateMessages = []
 let leaves = 0
 const bot = {
   uin: '10001',
@@ -21,8 +22,13 @@ const bot = {
   pickGroup() {
     return { info: { group_name: '测试群' } }
   },
-  async sendApi(action) {
+  async sendApi(action, params) {
     if (action === 'get_group_info') return { data: { group_name: '测试群', member_count: 49 } }
+    if (action === 'get_group_list') return { data: [...this.gl.keys()].map(group_id => ({ group_id })) }
+    if (action === 'send_private_msg') {
+      privateMessages.push(params)
+      return { status: 'ok', retcode: 0 }
+    }
     throw new Error(`unexpected action: ${action}`)
   },
   async sendGroupMsg(groupId, message) {
@@ -195,4 +201,99 @@ test('an already left group is removed from persistent reviews without a second 
   assert.equal(await expireStayReview(review, bot), true)
   assert.equal(leaves, 5)
   assert.equal(new InviteManagementService({ bot }).getStayReviews().length, 0)
+})
+
+test('post-join review remains scheduled even when every notice fails', async () => {
+  const send = bot.sendGroupMsg
+  bot.sendGroupMsg = async () => { throw new Error('通知群不可用') }
+  try {
+    assert.equal(await beginStayReview('123456', null, bot, { reviewType: 'post_join', userId: '30003' }), true)
+    const review = new InviteManagementService({ bot }).getStayReviews()[0]
+    assert.equal(review.noticeSent, false)
+    assert.ok(review.expiresAt > Date.now())
+    assert.equal((await decideStayReview(review, true, bot)).ok, true)
+  } finally {
+    bot.sendGroupMsg = send
+  }
+})
+
+test('an interrupted rejection is retried immediately, even before its original deadline', async () => {
+  const review = {
+    requestId: '10001-stay-rejected-before-restart', botId: '10001', groupId: '123456',
+    groupName: '测试群', memberCount: 49, reviewType: 'post_join', cooldownMinutes: 10,
+    requestTime: Date.now() - 1000, expiresAt: Date.now() + 600000,
+    status: 'leaving', leaveReason: '留群审核被拒绝', msgIds: [], manageGroupIds: []
+  }
+  new InviteManagementService({ bot }).saveStayReview(review)
+  const before = leaves
+  assert.equal(await expireStayReview(review, bot), true)
+  assert.equal(leaves, before + 1)
+  const service = new InviteManagementService({ bot })
+  assert.equal(service.getStayReviews().length, 0)
+  assert.ok(service.getStayCooldown('123456')?.expiresAt > Date.now())
+  const other = new InviteManagementService({ bot: { self_id: '10002' } })
+  assert.equal(other.getStayCooldown('123456'), null)
+})
+
+test('a failed leave remains pending and does not start the cooldown', async () => {
+  const service = new InviteManagementService({ bot })
+  service.clearStayCooldown('123456')
+  const review = {
+    requestId: '10001-stay-protocol-failed', botId: '10001', groupId: '123456',
+    groupName: '测试群', memberCount: 49, reviewType: 'post_join', cooldownMinutes: 10,
+    requestTime: Date.now() - 60000, expiresAt: Date.now() - 1,
+    status: 'pending', msgIds: [], manageGroupIds: []
+  }
+  service.saveStayReview(review)
+  const leave = bot.setGroupLeave
+  bot.setGroupLeave = async () => ({ status: 'failed', retcode: 100 })
+  try {
+    assert.equal(await expireStayReview(review, bot), false)
+    const latest = new InviteManagementService({ bot })
+    assert.equal(latest.getStayReviews()[0].status, 'pending')
+    assert.equal(latest.getStayCooldown('123456'), null)
+    latest.removeStayReview(review)
+  } finally {
+    bot.setGroupLeave = leave
+  }
+})
+
+test('ambiguous startup membership keeps the expired review for a later retry', async () => {
+  const review = {
+    requestId: '10001-stay-unknown-membership', botId: '10001', groupId: '999999',
+    groupName: '等待群列表', memberCount: null, reviewType: 'post_join',
+    requestTime: Date.now() - 60000, expiresAt: Date.now() - 1,
+    status: 'pending', msgIds: [], manageGroupIds: []
+  }
+  new InviteManagementService({ bot }).saveStayReview(review)
+  const getApi = bot.sendApi
+  bot.sendApi = async () => { throw new Error('群列表尚未就绪') }
+  try {
+    assert.equal(await expireStayReview(review, bot), false)
+    assert.equal(new InviteManagementService({ bot }).getStayReviews().length, 1)
+    new InviteManagementService({ bot }).removeStayReview(review)
+  } finally {
+    bot.sendApi = getApi
+  }
+})
+
+test('recovered expiry notifies reviewers and respects the inviter notification switch', async () => {
+  for (const enabled of [true, false]) {
+    const config = Config.loadConfig()
+    config.inviteManagement.notifyInviterOnExpiry = enabled
+    Config.saveConfig(config)
+    privateMessages.length = 0
+    messages.length = 0
+    const review = {
+      requestId: `10001-expired-notice-${enabled}`, botId: '10001', groupId: '654321',
+      groupName: '已退出的群', userId: '30003', memberCount: 49, reviewType: 'post_join', cooldownMinutes: 10,
+      requestTime: Date.now() - 60000, expiresAt: Date.now() - 1,
+      status: 'leaving', leaveReason: '留群审核超时', msgIds: [], manageGroupIds: ['777777']
+    }
+    new InviteManagementService({ bot }).saveStayReview(review)
+    assert.equal(await expireStayReview(review, bot), true)
+    assert.ok(messages.some(message => /审核已结束，机器人已退群/.test(message)))
+    assert.equal(privateMessages.length, enabled ? 1 : 0)
+    if (enabled) assert.match(privateMessages[0].message, /审核已结束，机器人已退群/)
+  }
 })

@@ -231,7 +231,10 @@ export function buildGroupRequestNotice(e, config, {
   return image ? [`${lines.join('\n')}\n`, image] : [lines.join('\n')]
 }
 
-export async function handleGroupRequestAction(e, source, approve = true) {
+export async function handleGroupRequestAction(e, source, approve) {
+  if (approve !== true && approve !== false) {
+    return { ok: false, message: '无法识别审批操作，请重新发送命令' }
+  }
   const request = findPendingGroupRequest(e, source)
   if (!request) {
     return {

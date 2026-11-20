@@ -7,7 +7,7 @@ import test from 'node:test'
 process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'auto-leave-invite-expiry-')))
 globalThis.logger = { debug() {}, info() {}, warn() {}, error() {} }
 
-const { Config } = await import('../components/config.js')
+const { Config, DEFAULT_INVITE_MESSAGES } = await import('../components/config.js')
 const { InviteManagementService, reconcilePendingInviteRequests } = await import('../model/inviteManagement.js')
 const { setConfigData } = await import('../model/guoba/setConfigData.js')
 const { getConfigData } = await import('../model/guoba/getConfigData.js')
@@ -58,6 +58,27 @@ test('Guoba saves and reads the expiry notification switch', async () => {
   assert.equal(result.ok, true)
   assert.equal((await getConfigData()).inviteManagement.notifyInviterOnExpiry, false)
   assert.equal(new InviteManagementService({ bot }).config.notifyInviterOnExpiry, false)
+})
+
+test('Guoba saves post-join settings without overwriting live review state', async () => {
+  resetConfig()
+  const snapshot = await getConfigData()
+  snapshot.inviteManagement.reviewMode = 4
+  snapshot.inviteManagement.stayReviewCooldownMinutes = 0
+  const config = Config.loadConfig()
+  const now = Date.now()
+  config.inviteManagement.pendingJoins = [{ botId: '10001', groupId: '123456', userId: '20002', createdAt: now, expiresAt: now + 60000 }]
+  config.inviteManagement.stayReviewCooldowns = [{ botId: '10001', groupId: '654321', expiresAt: now + 60000 }]
+  Config.saveConfig(config)
+  const result = await setConfigData(snapshot, {
+    Result: { ok: () => ({ ok: true }), error: message => ({ ok: false, message }) }
+  })
+  assert.equal(result.ok, true)
+  const readback = await getConfigData()
+  assert.equal(readback.inviteManagement.reviewMode, 4)
+  assert.equal(readback.inviteManagement.stayReviewCooldownMinutes, 0)
+  assert.equal(readback.inviteManagement.pendingJoins.length, 1)
+  assert.equal(readback.inviteManagement.stayReviewCooldowns.length, 1)
 })
 
 test('an unanswered invite sends its inviter one end notice at expiry', async () => {
@@ -150,4 +171,24 @@ test('disabled expiry notices still clear expired invitations', async () => {
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(messages.length, 0)
   assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+})
+
+test('legacy invite notice templates migrate and custom templates remain unchanged', async () => {
+  for (const prefix of ['#', 't']) {
+    const oldTemplate = `机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 ${prefix}确认加群 或 ${prefix}拒绝加群\n备用方式：${prefix}确认加群 {groupId}\n有效期：{expireMinutes} 分钟`
+    const config = Config.loadConfig()
+    config.inviteMessages.reviewNotification = oldTemplate
+    assert.equal(Config.saveConfig(config), true)
+    const loaded = Config.loadConfig()
+    assert.equal(loaded.inviteMessages.reviewNotification, DEFAULT_INVITE_MESSAGES.reviewNotification)
+    const saved = JSON.parse(fs.readFileSync(path.join(Config.configPath, 'config.json'), 'utf8'))
+    assert.equal(saved.inviteMessages.reviewNotification, DEFAULT_INVITE_MESSAGES.reviewNotification)
+    assert.equal((await getConfigData()).inviteMessages.reviewNotification, DEFAULT_INVITE_MESSAGES.reviewNotification)
+  }
+
+  const config = Config.loadConfig()
+  config.inviteMessages.reviewNotification = '自定义通知：{groupName}'
+  Config.saveConfig(config)
+  assert.equal(Config.loadConfig().inviteMessages.reviewNotification, '自定义通知：{groupName}')
+  assert.equal((await getConfigData()).inviteMessages.reviewNotification, '自定义通知：{groupName}')
 })

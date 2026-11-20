@@ -1,5 +1,6 @@
 import { Config } from '../components/config.js'
 import { addUserToBlacklist, getUserBlacklist, removeUserFromBlacklist } from './yunzaiConfig.js'
+import { getCommandText } from './command.js'
 
 export const TIME_UNIT = {
   毫秒: 0.001,
@@ -100,7 +101,7 @@ export function normalizeId(value) {
 }
 
 export function getMessageText(e) {
-  return String(e?.raw_message || e?.msg || '').trim()
+  return getCommandText(e)
 }
 
 const MUTE_NUM_REG = '[零一壹二两三四五六七八九十百千万亿\\d]+'
@@ -109,15 +110,10 @@ const MUTE_UNIT_REG = Object.keys(TIME_UNIT).sort((a, b) => b.length - a.length)
 export function parseMuteCommand(e) {
   const text = getMessageText(e)
   const atIds = extractAtIds(e).map(String)
-  const explicitUser = text.match(/^[tT]禁言\s*(\d{5,})/)?.[1]
+  const explicitUser = atIds.length ? '' : text.match(/^[tT]禁言\s*(\d{5,})/)?.[1]
   const target = atIds[0] || explicitUser || ''
   let tail = text.replace(/^[tT]禁言/, '').trim()
 
-  // OneBot raw_message may include CQ at segments; they are targets, not durations.
-  tail = tail.replace(/\[CQ:at,[^\]]*\]/gi, ' ')
-  for (const userId of atIds) {
-    tail = tail.replace(new RegExp(`(^|\\s)${userId}(?=\\s|$)`, 'g'), ' ')
-  }
   if (explicitUser && !atIds.length && tail.startsWith(explicitUser)) {
     tail = tail.slice(explicitUser.length).trim()
   }
@@ -130,22 +126,25 @@ export function parseMuteCommand(e) {
   }
 }
 
-export function extractAtIds(e) {
+export function extractAtIds(e, { excludeId = e?.self_id ?? e?.bot?.uin ?? e?.bot?.self_id } = {}) {
   const message = Array.isArray(e?.message) ? e.message : []
+  const isTarget = value => /^\d+$/.test(String(value ?? '')) && String(value) !== String(excludeId ?? '')
   const ids = message
-    .filter(item => item?.type === 'at' && (item?.qq ?? item?.data?.qq) && (item?.qq ?? item?.data?.qq) !== 'all')
+    .filter(item => item?.type === 'at' && isTarget(item?.qq ?? item?.data?.qq))
     .map(item => normalizeId(item.qq ?? item.data.qq))
 
   if (ids.length > 0) {
     return ids
   }
 
-  if (e?.at && e.at !== 'all') {
+  if (isTarget(e?.at)) {
     return [normalizeId(e.at)]
   }
 
+  if (message.length) return []
   const rawMessage = String(e?.raw_message || '')
   const cqIds = [...rawMessage.matchAll(/\[CQ:at,[^\]]*qq=(\d+)[^\]]*\]/gi)]
+    .filter(match => isTarget(match[1]))
     .map(match => normalizeId(match[1]))
   if (cqIds.length > 0) {
     return cqIds
@@ -636,7 +635,7 @@ export async function getQuotedMessage(e, { img = false, file = false } = {}) {
 
 export async function getQuotedAtIds(e) {
   const source = await getQuotedMessage(e)
-  return source ? extractAtIds(source) : []
+  return source ? extractAtIds(source, { excludeId: e?.self_id ?? e?.bot?.uin ?? e?.bot?.self_id }) : []
 }
 
 export function formatDuration(seconds) {

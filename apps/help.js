@@ -3,6 +3,7 @@ import { Config } from '../components/config.js'
 import Render from '../model/render.js'
 import { pluginTitle, pluginVersion } from '../model/constant.js'
 import { style } from '../resources/help/imgs/config.js'
+import { prepareCommandRules } from '../utils/command.js'
 
 function padIcon(icon) {
   return String(icon).padStart(2, '0')
@@ -72,6 +73,7 @@ export class AutoLeaveHelp extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   getThemeData(helpCfg) {

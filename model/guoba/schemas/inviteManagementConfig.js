@@ -24,7 +24,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.reviewMode',
     label: '审核模式',
-    bottomHelpMessage: '人工审核会发送通知，等待 t确认加群 或 t拒绝加群',
+    bottomHelpMessage: '入群后审核会先同意普通邀请，再发送留群审核通知；人数预检查不阻止入群',
     component: 'RadioGroup',
     defaultValue: 2,
     componentProps: {
@@ -32,14 +32,15 @@ export const inviteManagementConfigSchema = [
         { label: '自动同意', value: 0 },
         { label: '关闭不处理', value: 1 },
         { label: '人工审核', value: 2 },
-        { label: '自动拒绝', value: 3 }
+        { label: '自动拒绝', value: 3 },
+        { label: '入群后审核', value: 4 }
       ]
     }
   },
   {
     field: 'inviteManagement.allowInviterConfirm',
     label: '允许邀请者确认',
-    bottomHelpMessage: '关闭后邀请者本人不能处理自己的邀请请求',
+    bottomHelpMessage: '开启时邀请者可自行确认或拒绝，包括入群后留群审核；如需主人或管理员独立审核，请关闭',
     component: 'Switch',
     defaultValue: true
   },
@@ -57,7 +58,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.notifyInviterOnExpiry',
     label: '审核到期通知邀请者',
-    bottomHelpMessage: '机器人加群邀请在有效期内未被处理时，私聊邀请者告知本次审核已结束；不会主动拒绝 QQ 邀请',
+    bottomHelpMessage: '机器人加群邀请或入群后留群审核超时结束时私聊邀请者；入群前审核到期不会主动拒绝 QQ 邀请',
     component: 'Switch',
     defaultValue: true
   },
@@ -74,11 +75,19 @@ export const inviteManagementConfigSchema = [
   },
   {
     field: 'inviteManagement.stayReviewMinutes',
-    label: '已入群低人数审核时效（分钟）',
-    bottomHelpMessage: '机器人直接入群后人数不足时等待确认；到期未确认则退群，重启后按截止时间补处理',
+    label: '留群审核时效（分钟）',
+    bottomHelpMessage: '入群后审核或直接进入低人数群时等待确认；到期未确认则退群，重启后按截止时间补处理',
     component: 'InputNumber',
     defaultValue: 10,
     componentProps: { min: 1, max: 1440, step: 1 }
+  },
+  {
+    field: 'inviteManagement.stayReviewCooldownMinutes',
+    label: '审核退群冷却（分钟）',
+    bottomHelpMessage: '留群审核超时或拒绝退群后阻止该群重复邀请；直接拉入时自动退出。0 为关闭，白名单和主人强制放行除外',
+    component: 'InputNumber',
+    defaultValue: 10,
+    componentProps: { min: 0, max: 1440, step: 1 }
   },
   {
     component: 'Divider',
@@ -132,7 +141,7 @@ export const inviteManagementConfigSchema = [
   {
     field: 'inviteManagement.notifyMasterOnPrecheckReject',
     label: '预检查失败通知主人',
-    bottomHelpMessage: '预检查失败时私聊通知主人，并附带 t强制同意加群 入口',
+    bottomHelpMessage: '预检查失败时私聊通知主人，并附带 t强制确认加群 入口',
     component: 'Switch',
     defaultValue: true
   },

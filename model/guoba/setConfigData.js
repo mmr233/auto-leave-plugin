@@ -144,7 +144,9 @@ export async function setConfigData(data, { Result }) {
 
     if (config.inviteManagement) {
       const invite = config.inviteManagement
-      delete invite.stayReviews
+      for (const key of ['stayReviews', 'stayReviewCooldowns', 'pendingJoins', 'pendingRequests', 'approvedGroupStates']) {
+        delete invite[key]
+      }
       for (const key of ['notifyGroups', 'blackGroups', 'whiteGroups', 'approvedGroups']) {
         if (invite[key] !== undefined) {
           invite[key] = normalizeGroupSelectValues(invite[key])
@@ -168,6 +170,10 @@ export async function setConfigData(data, { Result }) {
       }
       if (invite.stayReviewMinutes !== undefined) {
         invite.stayReviewMinutes = Math.max(1, Math.min(1440, Number(invite.stayReviewMinutes) || 10))
+      }
+      if (invite.stayReviewCooldownMinutes !== undefined) {
+        const minutes = Number(invite.stayReviewCooldownMinutes)
+        invite.stayReviewCooldownMinutes = Number.isFinite(minutes) ? Math.max(0, Math.min(1440, Math.floor(minutes))) : 10
       }
       if (invite.precheckMode !== undefined) {
         invite.precheckMode = ['reject', 'warn'].includes(String(invite.precheckMode))

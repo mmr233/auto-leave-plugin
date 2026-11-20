@@ -1,6 +1,7 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { Config } from '../components/config.js'
 import { splitByComma } from '../utils/common.js'
+import { getCommandText, prepareCommandRules } from '../utils/command.js'
 
 /**
  * 违禁词管理
@@ -27,6 +28,7 @@ export class BannedWordsHandler extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async addBannedWord(e) {
@@ -35,7 +37,7 @@ export class BannedWordsHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]添加违禁词\s*(.+)$/)
+    const match = getCommandText(e).match(/^[tT]添加违禁词\s*(.+)$/)
     if (!match || !match[1]) {
       await e.reply('请输入要添加的违禁词')
       return true
@@ -122,7 +124,7 @@ export class BannedWordsHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]删除违禁词\s*(.+)$/)
+    const match = getCommandText(e).match(/^[tT]删除违禁词\s*(.+)$/)
     if (!match || !match[1]) {
       await e.reply('请输入要删除的违禁词或序号')
       return true

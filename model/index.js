@@ -8,11 +8,12 @@ import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
 import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
 import { initGroupAdminRuntime } from './groupAdminRuntime.js'
-import { InviteManagementService, normalizeIdList, reconcilePendingInviteRequests } from './inviteManagement.js'
+import { InviteManagementService, normalizeIdList, reconcilePendingInviteRequests, REVIEW_MODE } from './inviteManagement.js'
 import { beginStayReview, cancelStayReviewForGroup, reconcileStayReviews } from './stayReview.js'
+import { rememberInviteCard } from './inviteCard.js'
 
 // 处理标记，防止重复处理
-const processedGroups = new Set()
+const processedGroups = new Map()
 
 // 违禁词触发记录
 const bannedWordTriggers = new Map()
@@ -22,16 +23,18 @@ let eventListenerReady = false
  * 处理群成员增加事件
  */
 export async function handleGroupIncrease(e) {
-  // 生成唯一标识，防止重复处理同一事件
-  const eventKey = `${e.group_id}_${e.user_id}_${Date.now()}`
+  const botId = String(e.bot?.uin || e.bot?.self_id || e.self_id || '')
+  const eventId = e.event_id || e.time || ''
+  const eventKey = `${botId}:${e.group_id}:${e.user_id}:${eventId || 'untimed'}`
   if (processedGroups.has(eventKey)) {
     return
   }
-  processedGroups.add(eventKey)
-  // 清理过期的处理记录（5分钟后清理）
-  setTimeout(() => {
-    processedGroups.delete(eventKey)
-  }, 5 * 60 * 1000)
+  const token = Symbol()
+  processedGroups.set(eventKey, token)
+  const cleanup = setTimeout(() => {
+    if (processedGroups.get(eventKey) === token) processedGroups.delete(eventKey)
+  }, eventId ? 5 * 60 * 1000 : 5000)
+  cleanup.unref?.()
 
   logger.info(`[自动退群] 群成员增加: 群${e.group_id}, 用户${e.user_id}, 操作者${e.operator_id}`)
 
@@ -44,7 +47,7 @@ export async function handleGroupIncrease(e) {
 /**
  * 处理机器人进群
  */
-async function processGroupJoin(e) {
+export async function processGroupJoin(e) {
   try {
     const botId = e.bot?.uin || e.self_id
     if (e.user_id != botId) {
@@ -55,9 +58,6 @@ async function processGroupJoin(e) {
     logger.info(`[自动退群] 检测到机器人被拉入群: ${groupId}, 机器人ID: ${botId}`)
     const config = Config.loadConfig()
     const inviteService = new InviteManagementService(e)
-    const approvedByInvite = inviteService.isApprovedGroup(groupId)
-      ? inviteService.consumeApprovedGroup(groupId)
-      : false
 
     // 检查黑名单 - 黑名单优先级最高
     const blacklist = [
@@ -67,7 +67,7 @@ async function processGroupJoin(e) {
     if (blacklist.includes(String(groupId))) {
       logger.warn(`[自动退群] 群 ${groupId} 在黑名单中，立即退群`)
       const groupName = await getGroupName(parseInt(groupId), e.bot || Bot)
-      await executeLeaveGroup({
+      const left = await executeLeaveGroup({
         groupId,
         memberCount: 0,
         bot: e.bot || Bot,
@@ -75,6 +75,8 @@ async function processGroupJoin(e) {
         groupName,
         reason: '群聊在黑名单中'
       })
+      const pending = inviteService.getPendingJoin(groupId)
+      if (left && pending) inviteService.removePendingJoin(pending)
       return
     }
 
@@ -84,6 +86,8 @@ async function processGroupJoin(e) {
       ...normalizeIdList(config.inviteManagement?.whiteGroups)
     ]
     if (whitelist.includes(String(groupId))) {
+      const pending = inviteService.getPendingJoin(groupId)
+      if (pending) inviteService.removePendingJoin(pending)
       logger.info(`[自动退群] 群 ${groupId} 在白名单中，跳过检查`)
       // 发送白名单进群提示
       if (config.whitelistJoinMessage) {
@@ -98,9 +102,42 @@ async function processGroupJoin(e) {
       return
     }
 
+    const cooldown = inviteService.getStayCooldown(groupId)
+    if (cooldown) {
+      logger.warn(`[自动退群] 群 ${groupId} 仍处于退群冷却期，将自动退出`)
+      const started = await beginStayReview(groupId, null, e.bot || Bot, { reviewType: 'cooldown' })
+      const pending = inviteService.getPendingJoin(groupId)
+      if (started && pending) new InviteManagementService(e).removePendingJoin(pending)
+      if (!started) {
+        logger.error(`[自动退群] 无法保存群 ${groupId} 的冷却退群状态，尝试立即退群`)
+        await executeLeaveGroup({ groupId, bot: e.bot || Bot, reason: '留群审核退群冷却中', skipGroupMessage: true })
+      }
+      return
+    }
+
+    const approvedByInvite = inviteService.isApprovedGroup(groupId)
+      ? inviteService.consumeApprovedGroup(groupId)
+      : false
+
     // 人工批准或主人强制放行的群只跳过本次进群后人数退群检查，消费一次即失效。
     if (approvedByInvite) {
+      const pending = inviteService.getPendingJoin(groupId)
+      if (pending) inviteService.removePendingJoin(pending)
       logger.info(`[自动退群] 群 ${groupId} 已通过邀请审核，跳过本次人数检查`)
+      return
+    }
+
+    const pendingJoin = inviteService.getPendingJoin(groupId)
+    if (pendingJoin || (inviteService.config.enabled && inviteService.config.reviewMode === REVIEW_MODE.POST_JOIN)) {
+      const started = await beginStayReview(groupId, null, e.bot || Bot, {
+        reviewType: 'post_join',
+        userId: pendingJoin?.userId || e.operator_id
+      })
+      if (started && pendingJoin) new InviteManagementService(e).removePendingJoin(pendingJoin)
+      if (!started) {
+        logger.error(`[自动退群] 无法保存群 ${groupId} 的留群审核状态，尝试立即退群`)
+        await executeLeaveGroup({ groupId, bot: e.bot || Bot, reason: '留群审核状态保存失败', skipGroupMessage: true })
+      }
       return
     }
 
@@ -200,11 +237,18 @@ export function initEventListener() {
     return false
   }
 
+  bot.on('message.private', rememberInviteCard)
+
   // 监听群成员增加事件（机器人进群和用户进群）
   bot.on('notice.group.increase', (e) => {
     handleGroupIncrease(e)
   })
   bot.on('notice.group.decrease', (e) => {
+    const botId = String(e.bot?.uin || e.bot?.self_id || e.self_id || '')
+    const prefix = `${botId}:${e.group_id}:${e.user_id}:`
+    for (const key of processedGroups.keys()) {
+      if (key.startsWith(prefix)) processedGroups.delete(key)
+    }
     cancelStayReviewForGroup(e)
   })
   // 监听群禁言事件

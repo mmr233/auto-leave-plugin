@@ -1,5 +1,5 @@
 import { Config, DEFAULT_INVITE_MESSAGES } from '../components/config.js'
-import { sendGroupMessage, sendPrivateMessage } from '../utils/groupInfo.js'
+import { isApiSuccess, sendGroupMessage, sendPrivateMessage } from '../utils/groupInfo.js'
 import {
   callBotApi,
   getBot,
@@ -7,19 +7,23 @@ import {
   getGroupMemberInfo
 } from '../utils/groupAdmin.js'
 import { getMasterQQ } from '../utils/common.js'
+import { findInviteCard } from './inviteCard.js'
+import { getInviteShareInfo } from './inviteShare.js'
 
 export const REVIEW_MODE = {
   AUTO_APPROVE: 0,
   DISABLED: 1,
   MANUAL: 2,
-  AUTO_REJECT: 3
+  AUTO_REJECT: 3,
+  POST_JOIN: 4
 }
 
 export const REVIEW_MODE_LABEL = {
   [REVIEW_MODE.AUTO_APPROVE]: '自动同意',
   [REVIEW_MODE.DISABLED]: '关闭不处理',
   [REVIEW_MODE.MANUAL]: '人工审核',
-  [REVIEW_MODE.AUTO_REJECT]: '自动拒绝'
+  [REVIEW_MODE.AUTO_REJECT]: '自动拒绝',
+  [REVIEW_MODE.POST_JOIN]: '入群后审核'
 }
 
 export const PRECHECK_MODE = {
@@ -241,13 +245,43 @@ function normalizeStayReviews(value) {
     botId: toId(item.botId),
     groupId: toId(item.groupId),
     groupName: String(item.groupName || '未知群名'),
+    userId: toId(item.userId),
+    nickname: String(item.nickname || '未知用户'),
     memberCount: firstMemberCount(item.memberCount),
+    checkedMemberCount: firstMemberCount(item.checkedMemberCount),
+    countBasis: String(item.countBasis || ''),
+    reviewType: ['post_join', 'cooldown'].includes(item.reviewType) ? item.reviewType : 'low_members',
+    cooldownMinutes: item.cooldownMinutes == null ? null : Math.max(0, Number(item.cooldownMinutes) || 0),
+    noticeSent: item.noticeSent === true,
+    joinObservedAt: Number(item.joinObservedAt) || 0,
+    leaveStartedAt: Number(item.leaveStartedAt) || 0,
+    leaveReason: String(item.leaveReason || ''),
     requestTime: Number(item.requestTime) || 0,
     expiresAt: Number(item.expiresAt) || 0,
     status: item.status === 'leaving' ? 'leaving' : 'pending',
     msgIds: normalizeIdList(item.msgIds),
     manageGroupIds: normalizeIdList(item.manageGroupIds)
   })).filter(item => item.requestId && item.botId && item.groupId && item.expiresAt > 0)
+}
+
+function normalizeStayCooldowns(value) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => ({
+    botId: toId(item?.botId),
+    groupId: toId(item?.groupId),
+    expiresAt: Number(item?.expiresAt) || 0
+  })).filter(item => item.botId && item.groupId && item.expiresAt > 0)
+}
+
+function normalizePendingJoins(value) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => ({
+    botId: toId(item?.botId),
+    groupId: toId(item?.groupId),
+    userId: toId(item?.userId),
+    createdAt: Number(item?.createdAt) || 0,
+    expiresAt: Number(item?.expiresAt) || 0
+  })).filter(item => item.botId && item.groupId && item.createdAt > 0 && item.expiresAt > 0)
 }
 
 export function normalizeApprovedGroupStates(value) {
@@ -270,6 +304,8 @@ export function normalizeApprovedGroupStates(value) {
 export function getInviteConfig(rootConfig = Config.loadConfig()) {
   const raw = rootConfig.inviteManagement || {}
   const mode = Number(raw.reviewMode)
+  const cooldown = raw.stayReviewCooldownMinutes === '' || raw.stayReviewCooldownMinutes == null
+    ? 10 : Number(raw.stayReviewCooldownMinutes)
 
   return {
     enabled: raw.enabled !== false,
@@ -287,6 +323,9 @@ export function getInviteConfig(rootConfig = Config.loadConfig()) {
     approvedGroupStates: normalizeApprovedGroupStates(raw.approvedGroupStates),
     stayReviews: normalizeStayReviews(raw.stayReviews),
     stayReviewMinutes: Math.max(1, Math.min(1440, Number(raw.stayReviewMinutes) || 10)),
+    stayReviewCooldownMinutes: Number.isFinite(cooldown) ? Math.max(0, Math.min(1440, Math.floor(cooldown))) : 10,
+    stayReviewCooldowns: normalizeStayCooldowns(raw.stayReviewCooldowns),
+    pendingJoins: normalizePendingJoins(raw.pendingJoins),
     precheckMemberCount: raw.precheckMemberCount !== false,
     excludeBotFromPrecheck: raw.excludeBotFromPrecheck !== false,
     precheckMode: Object.values(PRECHECK_MODE).includes(String(raw.precheckMode))
@@ -319,10 +358,17 @@ export async function setGroupAddRequest(botOrEvent, request, approve, reason = 
     reason
   }
   const errors = []
+  const checkResult = res => {
+    if (res === false || res?.status === 'failed' ||
+      (res?.retcode !== undefined && ![0, 1].includes(Number(res.retcode)))) {
+      throw new Error(res?.message || res?.wording || res?.msg || '协议端返回处理失败')
+    }
+    return res
+  }
 
   const tryCall = async (label, fn) => {
     try {
-      const res = await fn()
+      const res = checkResult(await fn())
       logger.debug?.(`[自动退群] ${label} 处理群邀请成功`)
       return res
     } catch (err) {
@@ -359,7 +405,7 @@ export async function setGroupAddRequest(botOrEvent, request, approve, reason = 
   }
 
   try {
-    return await callBotApi(bot, 'set_group_add_request', params)
+    return checkResult(await callBotApi(bot, 'set_group_add_request', params))
   } catch (err) {
     errors.push(err)
   }
@@ -488,6 +534,9 @@ export class InviteManagementService {
         : '',
       reviewMode: REVIEW_MODE_LABEL[this.config.reviewMode] || '',
       memberCount: memberCount === null ? '未知' : memberCount,
+      checkedMemberCount: request.checkedMemberCount == null ? '未知' : request.checkedMemberCount,
+      countBasis: request.countBasis || '人数未知',
+      cooldownMinutes: request.cooldownMinutes ?? this.config.stayReviewCooldownMinutes,
       minMemberCount: Number(this.rootConfig?.minMemberCount) || 0,
       precheckReason: request.precheckReason || '',
       precheckAction: PRECHECK_FAILURE_ACTION_LABEL[request.precheckAction] || '',
@@ -582,23 +631,41 @@ export class InviteManagementService {
   }
 
   async getGroupInfo(groupId, event = null) {
-    let groupName = event?.group_name || '未知群名'
+    const cardEvent = event ? { self_id: event.self_id || this.botId, user_id: event.user_id } : null
+    let groupName = event?.group_name || event?.groupName || findInviteCard(cardEvent, groupId)?.groupName || '未知群名'
     const eventMemberCount = firstMemberCount(event?.member_count, event?.memberCount)
+    const result = async memberCount => {
+      if ((!groupName || groupName === '未知群名') && event?.flag && event?.user_id) {
+        let card = findInviteCard(cardEvent, groupId)
+        if (!card) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+          card = findInviteCard(cardEvent, groupId)
+        }
+        groupName = card?.groupName || groupName
+      }
+      return { groupId: String(groupId), groupName: groupName || '未知群名', memberCount }
+    }
+
+    const readResponse = res => {
+      if (res?.status === 'failed' || (res?.retcode !== undefined && Number(res.retcode) !== 0)) {
+        throw new Error(res?.message || '接口返回失败')
+      }
+      const data = getApiData(res)
+      const info = data.groupInfo || data.group_info || {}
+      const responseId = toId(data.group_id ?? data.groupId ?? data.groupCode ?? data.group_code ?? info.group_id ?? info.groupId ?? info.groupCode)
+      if (responseId && responseId !== String(groupId)) return null
+      groupName = data.group_name || data.groupName || data.name || info.group_name || info.groupName || groupName
+      return firstMemberCount(data.member_count, data.memberCount, data.memberNum, info.member_count, info.memberCount, info.memberNum)
+    }
+
     for (const noCache of [true, false]) {
       try {
         const res = await callBotApi(this.bot, 'get_group_info', {
           group_id: Number(groupId),
           no_cache: noCache
         })
-        if (res?.status === 'failed' || (res?.retcode !== undefined && Number(res.retcode) !== 0)) {
-          throw new Error(res?.message || '接口返回失败')
-        }
-        const data = getApiData(res)
-        groupName = data.group_name || data.groupName || data.name || groupName
-        const memberCount = firstMemberCount(data.member_count, data.memberCount)
-        if (memberCount !== null && memberCount > 0) {
-          return { groupId: String(data.group_id || groupId), groupName, memberCount }
-        }
+        const memberCount = readResponse(res)
+        if (memberCount > 0) return result(memberCount)
       } catch (err) {
         logger.debug?.(`[自动退群] 获取邀请群信息失败 (no_cache=${noCache}): ${err.message}`)
       }
@@ -608,26 +675,36 @@ export class InviteManagementService {
       const group = getGroup(this.bot, groupId)
       const info = group?.info || group
       const memberCount = firstMemberCount(info?.member_count, info?.memberCount)
-      return {
-        groupId: String(groupId),
-        groupName: info?.group_name || info?.groupName || info?.name || groupName,
-        memberCount: memberCount > 0
-          ? memberCount
-          : (eventMemberCount > 0 ? eventMemberCount : null)
-      }
+      groupName = info?.group_name || info?.groupName || info?.name || groupName
+      if (memberCount > 0) return result(memberCount)
     } catch (err) {
       logger.debug?.(`[自动退群] 读取邀请群缓存失败: ${err.message}`)
     }
 
-    return {
-      groupId: String(groupId),
-      groupName,
-      memberCount: eventMemberCount > 0 ? eventMemberCount : null
+    if (eventMemberCount > 0) return result(eventMemberCount)
+
+    for (const action of ['get_group_detail_info', 'get_group_info_ex']) {
+      try {
+        const memberCount = readResponse(await callBotApi(this.bot, action, { group_id: Number(groupId) }))
+        if (memberCount > 0) return result(memberCount)
+      } catch (err) {
+        logger.debug?.(`[自动退群] 获取邀请群详细信息失败 (${action}): ${err.message}`)
+      }
     }
+    const share = await getInviteShareInfo(cardEvent, groupId)
+    if (share) {
+      if (!groupName || groupName === '未知群名') groupName = share.groupName || groupName
+      if (share.memberCount > 0) return result(share.memberCount)
+    }
+    return result(null)
   }
 
   isBotAlreadyInGroup(groupId) {
-    return !!getGroup(this.bot, groupId)
+    if (this.bot?.gl instanceof Map) {
+      return this.bot.gl.has(String(groupId)) || this.bot.gl.has(Number(groupId))
+    }
+    const info = getGroup(this.bot, groupId)?.info
+    return !!info && String(info.group_id ?? info.groupId ?? '') === String(groupId)
   }
 
   async getUserInfo(userId) {
@@ -685,7 +762,7 @@ export class InviteManagementService {
 
   async sendReviewNotifications(request) {
     const message = request.kind === 'stay'
-      ? this.formatInviteMessage('stayReviewNotification', request)
+      ? this.formatInviteMessage(request.reviewType === 'post_join' ? 'postJoinReviewNotification' : 'stayReviewNotification', request)
       : this.buildReviewMessage(request)
     const msgIds = []
     const manageGroupIds = []
@@ -697,7 +774,7 @@ export class InviteManagementService {
         if (messageId) {
           msgIds.push(String(messageId))
         }
-        if (res !== false) {
+      if (isApiSuccess(res)) {
           manageGroupIds.push(String(groupId))
         }
       } catch (err) {
@@ -886,6 +963,66 @@ export class InviteManagementService {
     return saved
   }
 
+  getStayCooldown(groupId) {
+    const now = Date.now()
+    return this.config.stayReviewCooldowns.find(item => item.botId === this.botId &&
+      item.groupId === String(groupId) && item.expiresAt > now) || null
+  }
+
+  setStayCooldown(groupId, minutes) {
+    const target = toId(groupId)
+    if (!target || !this.botId || minutes <= 0) return false
+    const root = Config.loadConfig()
+    const now = Date.now()
+    const cooldowns = normalizeStayCooldowns(root.inviteManagement.stayReviewCooldowns)
+      .filter(item => item.expiresAt > now && !(item.botId === this.botId && item.groupId === target))
+    cooldowns.push({ botId: this.botId, groupId: target, expiresAt: now + minutes * 60000 })
+    root.inviteManagement.stayReviewCooldowns = cooldowns
+    const saved = Config.saveConfig(root)
+    this.reload()
+    return saved
+  }
+
+  clearStayCooldown(groupId) {
+    const root = Config.loadConfig()
+    const now = Date.now()
+    const cooldowns = normalizeStayCooldowns(root.inviteManagement.stayReviewCooldowns)
+    root.inviteManagement.stayReviewCooldowns = cooldowns.filter(item => item.expiresAt > now &&
+      !(item.botId === this.botId && item.groupId === String(groupId)))
+    const saved = Config.saveConfig(root)
+    this.reload()
+    return saved
+  }
+
+  savePendingJoin(groupId, userId) {
+    const target = toId(groupId)
+    if (!target || !this.botId) return null
+    const root = Config.loadConfig()
+    const now = Date.now()
+    const joins = normalizePendingJoins(root.inviteManagement.pendingJoins)
+      .filter(item => item.expiresAt > now && !(item.botId === this.botId && item.groupId === target))
+    const join = { botId: this.botId, groupId: target, userId: toId(userId), createdAt: now, expiresAt: now + 30 * 60000 }
+    root.inviteManagement.pendingJoins = [...joins, join]
+    if (!Config.saveConfig(root)) return null
+    this.reload()
+    return join
+  }
+
+  getPendingJoin(groupId) {
+    return this.config.pendingJoins.find(item => item.botId === this.botId &&
+      item.groupId === String(groupId) && item.expiresAt > Date.now()) || null
+  }
+
+  removePendingJoin(join) {
+    const root = Config.loadConfig()
+    const joins = normalizePendingJoins(root.inviteManagement.pendingJoins)
+    root.inviteManagement.pendingJoins = joins.filter(item => !(item.botId === join.botId &&
+      item.groupId === join.groupId && item.createdAt === join.createdAt))
+    const saved = Config.saveConfig(root)
+    this.reload()
+    return saved
+  }
+
   cleanExpiredApprovedGroups() {
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
@@ -941,7 +1078,7 @@ export class InviteManagementService {
         source: 'manual'
       })
       rootConfig.inviteManagement.approvedGroupStates = states
-      Config.saveConfig(rootConfig)
+      if (!Config.saveConfig(rootConfig)) return false
     }
     this.reload()
     return true

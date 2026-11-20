@@ -129,6 +129,7 @@ test('SnowLuma placeholder group count is not treated as an empty group', async 
     bot: {
       self_id: '10001',
       async sendApi(action, params) {
+        if (action !== 'get_group_info') throw new Error('unsupported action')
         calls.push(params.no_cache)
         return { status: 'ok', data: {
           group_id: 123456,
@@ -397,7 +398,7 @@ test('group request notices and quoted approvals stay within enabled groups', as
     group_id: 654321,
     user_id: 88888,
     isMaster: true
-  }, { message_id: 97001 })
+  }, { message_id: 97001 }, true)
   assert.equal(otherGroupAction.ok, false)
   assert.match(otherGroupAction.message, /未找到对应的加群申请/)
 })

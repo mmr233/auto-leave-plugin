@@ -7,6 +7,7 @@ const MUTE_LEAVE_VARIABLE_HELP = '变量说明：{muteCount}=当前累计禁言�
 const INVITE_COMMON_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{userId}=邀请人QQ，{nickname}=邀请人昵称，{reviewMode}=当前审核模式'
 const INVITE_REVIEW_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{memberCount}=群成员数，{requestId}=审核请求ID，{expireMinutes}=请求有效分钟数`
 const STAY_REVIEW_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{memberCount}=当前群人数，{minMemberCount}=最低人数要求，{requestId}=审核请求ID，{deadline}=截止时间'
+const POST_JOIN_REVIEW_VARIABLE_HELP = `${STAY_REVIEW_VARIABLE_HELP}，{checkedMemberCount}=对比人数，{countBasis}=是否包含本机器人，{userId}=邀请人QQ，{nickname}=邀请人昵称`
 const INVITE_EXPIRE_VARIABLE_HELP = '变量说明：{groupId}=群号，{groupName}=群名，{expireMinutes}=请求有效分钟数，{reviewMode}=当前审核模式'
 const INVITE_ERROR_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{error}=处理失败时的错误信息`
 const INVITE_PRECHECK_VARIABLE_HELP = `${INVITE_COMMON_VARIABLE_HELP}，{memberCount}=预检查获取到的群人数，{minMemberCount}=最低人数要求，{precheckReason}=预检查原因，{precheckAction}=预检查失败动作`
@@ -101,6 +102,13 @@ export const messageConfigSchema = [
     componentProps: { type: 'textarea' }
   },
   {
+    field: 'inviteMessages.postJoinReviewNotification',
+    label: '入群后审核通知',
+    bottomHelpMessage: POST_JOIN_REVIEW_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: { type: 'textarea' }
+  },
+  {
     field: 'inviteMessages.stayApproved',
     label: '留群同意回复',
     bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
@@ -111,6 +119,20 @@ export const messageConfigSchema = [
     field: 'inviteMessages.stayRejected',
     label: '留群拒绝回复',
     bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: { type: 'textarea' }
+  },
+  {
+    field: 'inviteMessages.stayExpired',
+    label: '留群审核到期提示',
+    bottomHelpMessage: INVITE_COMMON_VARIABLE_HELP,
+    component: 'Input',
+    componentProps: { type: 'textarea' }
+  },
+  {
+    field: 'inviteMessages.stayExpiredNotification',
+    label: '留群审核结束通知',
+    bottomHelpMessage: `${INVITE_COMMON_VARIABLE_HELP}，{cooldownMinutes}=退群冷却分钟数`,
     component: 'Input',
     componentProps: { type: 'textarea' }
   },

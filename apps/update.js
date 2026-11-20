@@ -1,5 +1,6 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { pluginName, pluginTitle } from '../model/constant.js'
+import { getCommandText, prepareCommandRules } from '../utils/command.js'
 
 let Update = null
 try {
@@ -37,6 +38,7 @@ export class AutoLeaveUpdate extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async update(e = this.e) {
@@ -46,7 +48,7 @@ export class AutoLeaveUpdate extends plugin {
     if (!updater) return true
 
     // Yunzai 通用更新器内部仍按 #更新格式解析，用户入口保持 t/T 前缀。
-    e.msg = `#${e.msg.includes('强制') ? '强制' : ''}更新${pluginName}`
+    e.msg = `#${getCommandText(e).includes('强制') ? '强制' : ''}更新${pluginName}`
     return updater.update()
   }
 

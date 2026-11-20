@@ -1,3 +1,8 @@
+export function isApiSuccess(result) {
+  return result !== false && result?.status !== 'failed' && result?.status !== 'error' &&
+    (result?.retcode === undefined || [0, 1].includes(Number(result.retcode)))
+}
+
 /**
  * 获取群名称
  * @param {number} groupId - 群号
@@ -205,15 +210,16 @@ export async function sendGroupMessage(bot, groupId, message) {
  */
 export async function leaveGroup(bot, groupId) {
   try {
+    let result
     if (bot.setGroupLeave) {
-      await bot.setGroupLeave(groupId)
+      result = await bot.setGroupLeave(groupId)
     } else if (bot.pickGroup) {
       const group = bot.pickGroup(groupId)
-      await group.quit()
+      result = await group.quit()
     } else {
-      await bot.sendApi('set_group_leave', { group_id: groupId })
+      result = await bot.sendApi('set_group_leave', { group_id: groupId })
     }
-    return true
+    return isApiSuccess(result)
   } catch (err) {
     logger.error(`[自动退群] 退群失败: ${err.message}`)
     return false
@@ -230,14 +236,12 @@ export async function sendPrivateMessage(bot, userId, message) {
   try {
     if (bot.pickFriend) {
       const friend = bot.pickFriend(userId)
-      await friend.sendMsg(message)
-      return true
+      return isApiSuccess(await friend.sendMsg(message))
     } else if (bot.sendApi) {
-      await bot.sendApi('send_private_msg', {
+      return isApiSuccess(await bot.sendApi('send_private_msg', {
         user_id: userId,
         message: message
-      })
-      return true
+      }))
     }
     return false
   } catch (err) {

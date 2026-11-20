@@ -1,5 +1,6 @@
 import plugin from '../../../lib/plugins/plugin.js'
 import { extractAtIds, getQuotedAtIds } from '../utils/groupAdmin.js'
+import { getCommandText, prepareCommandRules } from '../utils/command.js'
 import {
   addUsersToBlacklist,
   normalizeUserIds,
@@ -20,11 +21,13 @@ export class UserBlacklistHandler extends plugin {
       rule: [
         {
           reg: '^[tT]拉黑用户(?:\\s+.*)?$',
-          fnc: 'addUserBlacklist'
+          fnc: 'addUserBlacklist',
+          stripEmoji: true
         },
         {
           reg: '^[tT]批量拉黑(?:\\s+.*)?$',
-          fnc: 'addUsersBlacklist'
+          fnc: 'addUsersBlacklist',
+          stripEmoji: true
         },
         {
           reg: '^[tT]取消拉黑用户\\s*(\\d+)?$',
@@ -36,6 +39,7 @@ export class UserBlacklistHandler extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async addUserBlacklist(e) {
@@ -44,8 +48,8 @@ export class UserBlacklistHandler extends plugin {
       return true
     }
 
-    const text = String(e.msg || e.raw_message || '')
-    const numericIds = text.replace(/^[tT]拉黑用户/, '').match(/\d+/g) || []
+    const text = getCommandText(e)
+    const numericIds = text.replace(/^[tT]拉黑用户/, '').match(/\d{5,}/g) || []
     const currentAtIds = extractAtIds(e)
     const quotedAtIds = currentAtIds.length === 0 && numericIds.length === 0 ? await getQuotedAtIds(e) : []
     const userIds = normalizeUserIds([...currentAtIds, ...quotedAtIds, ...numericIds])
@@ -77,8 +81,8 @@ export class UserBlacklistHandler extends plugin {
       return true
     }
 
-    const text = String(e.msg || e.raw_message || '')
-    const numericIds = text.replace(/^[tT]批量拉黑/, '').match(/\d+/g) || []
+    const text = getCommandText(e)
+    const numericIds = text.replace(/^[tT]批量拉黑/, '').match(/\d{5,}/g) || []
     const currentAtIds = extractAtIds(e)
     const quotedAtIds = currentAtIds.length === 0 && numericIds.length === 0 ? await getQuotedAtIds(e) : []
     const userIds = normalizeUserIds([...currentAtIds, ...quotedAtIds, ...numericIds])
@@ -103,11 +107,11 @@ export class UserBlacklistHandler extends plugin {
       return true
     }
 
-    const match = e.msg.match(/^[tT]取消拉黑用户\s*(\d+)?$/)
+    const match = getCommandText(e).match(/^[tT]取消拉黑用户\s*(\d+)?$/)
     let userId = match?.[1]
 
-    if (!userId && e.at) {
-      userId = e.at
+    if (!userId) {
+      userId = extractAtIds(e)[0]
     }
 
     if (!userId) {

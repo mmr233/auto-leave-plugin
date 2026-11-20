@@ -9,9 +9,10 @@ import {
   isInviteForCurrentBot
 } from '../model/inviteManagement.js'
 import { decideStayReview } from '../model/stayReview.js'
+import { getCommandText, prepareCommandRules } from '../utils/command.js'
 
 function getText(e) {
-  return String(e.raw_message || e.msg || '').trim()
+  return getCommandText(e)
 }
 
 function getReplyMsgId(e) {
@@ -19,11 +20,8 @@ function getReplyMsgId(e) {
     ? e.message.find(item => item?.type === 'reply')
     : null
 
-  return reply?.id || reply?.data?.id || e.source?.message_id || e.source?.id || e.reply_id || ''
-}
-
-function getCommandGroupId(text) {
-  return text.replace(/^[tT](强制同意|确认|同意|拒绝)加群/, '').trim()
+  return reply?.id || reply?.data?.id || e.source?.message_id || e.source?.id || e.reply_id ||
+    String(e.raw_message || '').match(/\[CQ:reply,id=([^,\]]+)/i)?.[1] || ''
 }
 
 function getEnabledInviteService(e) {
@@ -116,6 +114,17 @@ export class BotInviteRequestHandler extends plugin {
       return true
     }
 
+    const cooldown = service.getStayCooldown(groupId)
+    if (cooldown) {
+      try {
+        await service.approveCurrentEvent(e, false, '该群处于留群审核退群冷却期')
+        await service.notifyInviter({ userId: String(e.user_id || '') }, `群 ${groupId} 仍处于退群冷却期，请稍后重新邀请`)
+      } catch (err) {
+        logger.error(`[自动退群] 拒绝冷却期群邀请失败: ${err.message}`)
+      }
+      return true
+    }
+
     const mode = service.config.reviewMode
     if (mode === REVIEW_MODE.DISABLED) {
       const request = {
@@ -143,6 +152,22 @@ export class BotInviteRequestHandler extends plugin {
         await service.notifyUsers(msg, [String(e.user_id || '')])
       } catch (err) {
         logger.error(`[自动退群] 自动拒绝群邀请失败: ${err.message}`)
+      }
+      return true
+    }
+
+    if (mode === REVIEW_MODE.POST_JOIN) {
+      const join = service.savePendingJoin(groupId, e.user_id)
+      if (!join) {
+        logger.error(`[自动退群] 无法保存群 ${groupId} 的入群审核状态，未同意邀请`)
+        return true
+      }
+      try {
+        await service.approveCurrentEvent(e, true)
+        await service.notifyInviter({ userId: String(e.user_id || '') }, `已同意加入群 ${groupId}，入群后等待留群审核`)
+      } catch (err) {
+        new InviteManagementService(e).removePendingJoin(join)
+        logger.error(`[自动退群] 同意入群后审核邀请失败: ${err.message}`)
       }
       return true
     }
@@ -239,11 +264,12 @@ export class BotInviteConfirmHandler extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: '^[tT](强制同意|确认|同意|拒绝)加群(\\s+\\S+)?$',
+          reg: '^[tT](强制确认|强制同意|确认|同意|拒绝)加群(\\s+\\S+)?$',
           fnc: 'handleConfirm'
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async handleConfirm(e = this.e) {
@@ -252,9 +278,13 @@ export class BotInviteConfirmHandler extends plugin {
       return false
     }
 
-    const text = getText(e)
-    const force = /^[tT]强制同意加群/.test(text)
-    const approve = force || /^[tT](确认加群|同意加群)/.test(text)
+    const match = getText(e).match(/^[tT](强制确认|强制同意|确认|同意|拒绝)加群(?:\s+(\S+))?$/)
+    if (!match) {
+      await e.reply('无法识别审核命令，请重新发送')
+      return true
+    }
+    const force = match[1] === '强制确认' || match[1] === '强制同意'
+    const approve = ['强制确认', '强制同意', '确认', '同意'].includes(match[1])
 
     if (force && !e.isMaster) {
       await e.reply('只有主人才能强制同意群邀请')
@@ -262,26 +292,27 @@ export class BotInviteConfirmHandler extends plugin {
     }
 
     const replyMsgId = getReplyMsgId(e)
-    const commandTarget = getCommandGroupId(text)
-    let requestId = ''
+    const commandTarget = match[2] || ''
+    let requestId = commandTarget && !/^\d+$/.test(commandTarget) ? commandTarget : ''
     let groupId = /^\d+$/.test(commandTarget) ? commandTarget : ''
+    let pendingMatches = []
+    let stayMatches = []
 
-    if (commandTarget && !groupId) {
-      requestId = commandTarget
-    }
-
-    if (!groupId && replyMsgId) {
-      const quoteText = await service.getMessageText(replyMsgId)
-      groupId = quoteText.match(/群号[:：]\s*(\d+)/)?.[1] || ''
-      requestId = quoteText.match(/请求ID[:：]\s*([a-z0-9-]+)/i)?.[1] || requestId
-    }
-
-    const hasPendingRequests = service.cleanExpiredPendingRequests().length > 0 || service.getStayReviews().length > 0
-    let pendingMatches = service.findPendingRequests({ msgId: replyMsgId, requestId })
-    let stayMatches = service.findStayReviews({ msgId: replyMsgId, requestId })
-    if (!pendingMatches.length && !stayMatches.length && groupId && (!replyMsgId || commandTarget)) {
-      pendingMatches = service.findPendingRequests({ groupId })
-      stayMatches = service.findStayReviews({ groupId })
+    if (commandTarget) {
+      pendingMatches = service.findPendingRequests({ groupId, requestId })
+      stayMatches = service.findStayReviews({ groupId, requestId })
+    } else if (replyMsgId) {
+      pendingMatches = service.findPendingRequests({ msgId: replyMsgId })
+      stayMatches = service.findStayReviews({ msgId: replyMsgId })
+      if (!pendingMatches.length && !stayMatches.length) {
+        const quoteText = await service.getMessageText(replyMsgId)
+        groupId = quoteText.match(/群号[:：]\s*(\d+)/)?.[1] || ''
+        requestId = quoteText.match(/请求ID[:：]\s*([a-z0-9-]+)/i)?.[1] || ''
+        if (requestId) {
+          pendingMatches = service.findPendingRequests({ requestId })
+          stayMatches = service.findStayReviews({ requestId })
+        }
+      }
     }
     const matches = [...pendingMatches, ...stayMatches]
     const pendingRequest = matches.length === 1 ? matches[0] : null
@@ -292,16 +323,16 @@ export class BotInviteConfirmHandler extends plugin {
         return true
       }
 
-      if (force && groupId) {
-        service.markApprovedGroup(groupId)
+      if (force && groupId && commandTarget) {
+        if (!service.markApprovedGroup(groupId) || !service.clearStayCooldown(groupId)) {
+          await e.reply('保存强制放行或清除冷却失败，请检查配置文件')
+          return true
+        }
         await e.reply(`已登记群 ${groupId} 的强制放行；下次收到该群邀请时将自动同意，并跳过本次人数退群检查`)
         logger.info(`[自动退群] 主人已登记群 ${groupId} 的强制放行`)
         return true
       }
 
-      if (!hasPendingRequests) {
-        return false
-      }
       await e.reply(service.formatInviteMessage('pendingNotFound'))
       return true
     }
@@ -318,6 +349,7 @@ export class BotInviteConfirmHandler extends plugin {
         if (decision.ok) await service.notifyUsers(decision.message, [String(e.user_id || '')])
         return true
       }
+      if (force) service.clearStayCooldown(pendingRequest.groupId)
       const reason = approve ? '' : service.formatInviteMessage('manualRejectReason', pendingRequest)
       await service.approvePendingRequest(pendingRequest, approve, reason)
       service.removePendingRequest(pendingRequest.requestId)
@@ -352,7 +384,7 @@ export class BotInviteManageCommands extends plugin {
       priority: 599,
       rule: [
         {
-          reg: '^[tT]群邀请审核(自动同意|关闭|人工审核|自动拒绝)$',
+          reg: '^[tT]群邀请审核(自动同意|关闭|人工审核|自动拒绝|入群后审核)$',
           fnc: 'setReviewMode'
         },
         {
@@ -377,6 +409,7 @@ export class BotInviteManageCommands extends plugin {
         }
       ]
     })
+    prepareCommandRules(this)
   }
 
   async setReviewMode(e = this.e) {
@@ -396,7 +429,8 @@ export class BotInviteManageCommands extends plugin {
       自动同意: REVIEW_MODE.AUTO_APPROVE,
       关闭: REVIEW_MODE.DISABLED,
       人工审核: REVIEW_MODE.MANUAL,
-      自动拒绝: REVIEW_MODE.AUTO_REJECT
+      自动拒绝: REVIEW_MODE.AUTO_REJECT,
+      入群后审核: REVIEW_MODE.POST_JOIN
     }
     const mode = modeMap[modeText]
     service.setReviewMode(mode)
@@ -461,6 +495,7 @@ export class BotInviteManageCommands extends plugin {
     }
 
     const match = getText(e).match(/^[tT](添加|删除)邀请通知群\s*(\d+)?$/)
+    if (!match) return false
     const groupId = match?.[2] || e.group_id
     if (!groupId) {
       await e.reply('请指定群号或在群内使用')
@@ -512,6 +547,7 @@ export class BotInviteManageCommands extends plugin {
       `有效期：${service.config.requestExpireMinutes} 分钟`,
       `到期通知邀请者：${service.config.notifyInviterOnExpiry ? '开启' : '关闭'}`,
       `留群审核：${service.getStayReviews().length} 条（${service.config.stayReviewMinutes} 分钟）`,
+      `审核退群冷却：${service.config.stayReviewCooldownMinutes} 分钟`,
       `人数预检查：${service.config.precheckMemberCount ? '开启' : '关闭'}`,
       `预检查计入受邀机器人：${service.config.excludeBotFromPrecheck ? '否' : '是'}`,
       `预检查模式：${PRECHECK_MODE_LABEL[service.config.precheckMode] || service.config.precheckMode}`,
