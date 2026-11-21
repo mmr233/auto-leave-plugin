@@ -2,12 +2,44 @@ import { Config } from '../components/config.js'
 import { getGroupName, leaveGroup, sendGroupMessage, sendPrivateMessage } from '../utils/groupInfo.js'
 import { getMasterQQ, sleep } from '../utils/common.js'
 
+const joinChecks = new Map()
+
+function joinCheckKey(groupId, bot) {
+  return `${bot?.uin || bot?.self_id || ''}:${groupId}`
+}
+
+export function cancelJoinCheck(groupId, bot) {
+  const key = joinCheckKey(groupId, bot)
+  const state = joinChecks.get(key)
+  if (!state) return
+  state.cancelled = true
+  clearTimeout(state.timer)
+  joinChecks.delete(key)
+}
+
+export function scheduleJoinCheck(groupId, bot, callback, delay = 5000) {
+  cancelJoinCheck(groupId, bot)
+  const key = joinCheckKey(groupId, bot)
+  const state = { cancelled: false, timer: null }
+  joinChecks.set(key, state)
+  state.timer = setTimeout(async () => {
+    try {
+      await callback(() => !state.cancelled)
+    } catch (err) {
+      logger.error(`[自动退群] 检查群 ${groupId} 人数失败: ${err.message}`)
+    } finally {
+      if (joinChecks.get(key) === state) joinChecks.delete(key)
+    }
+  }, delay)
+  state.timer.unref?.()
+}
+
 /**
  * 执行退群操作
  * @param {object} options - 退群选项
  */
 export async function executeLeaveGroup(options) {
-  const { groupId, memberCount, bot, message, groupName, reason, skipGroupMessage = false } = options
+  const { groupId, memberCount, bot, message, groupName, reason, skipGroupMessage = false, shouldLeave = () => true } = options
   const config = Config.loadConfig()
 
   try {
@@ -31,6 +63,10 @@ export async function executeLeaveGroup(options) {
 
     // 延迟退群
     await sleep(2000)
+    if (!shouldLeave()) {
+      logger.info(`[自动退群] 群 ${groupId} 的退群检查已取消`)
+      return false
+    }
 
     // 执行退群
     const success = await leaveGroup(bot, groupId)
@@ -85,7 +121,8 @@ async function sendNotificationToMaster(groupId, groupName, reason, bot) {
 /**
  * 检查并退群（带重试）
  */
-export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, onInsufficient = null) {
+export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, onInsufficient = null, isCurrent = () => true) {
+  if (!isCurrent()) return false
   const config = Config.loadConfig()
   const maxRetryCount = config.maxRetryCount || 3
   const retryDelay = config.retryDelay || 10000
@@ -96,8 +133,8 @@ export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, 
   let groupInfo = null
 
   // 只使用bot.gl方法获取群成员数量（从缓存读取，无网络请求）
-  if (bot.gl && bot.gl.has(groupId)) {
-    groupInfo = bot.gl.get(groupId)
+  if (bot.gl instanceof Map) {
+    groupInfo = bot.gl.get(groupId) || bot.gl.get(String(groupId)) || bot.gl.get(Number(groupId))
     if (groupInfo && groupInfo.member_count) {
       memberCount = groupInfo.member_count
       logger.info(`[自动退群] 通过bot.gl获取群 ${groupId} 成员数量: ${memberCount}`)
@@ -111,18 +148,20 @@ export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, 
     if (retryCount < maxRetryCount - 1) {
       logger.info(`[自动退群] 将在 ${retryDelay / 1000} 秒后重试获取群 ${groupId} 成员数量`)
       await sleep(retryDelay)
-      return checkAndLeaveGroupWithRetry(groupId, bot, retryCount + 1, onInsufficient)
+      return checkAndLeaveGroupWithRetry(groupId, bot, retryCount + 1, onInsufficient, isCurrent)
     } else {
       // 重试3次失败，执行错误退群
       logger.error(`[自动退群] 群 ${groupId} 重试 ${maxRetryCount} 次后仍无法获取成员数量，执行错误退群`)
       const groupName = await getGroupName(parseInt(groupId), bot)
+      if (!isCurrent()) return false
       await executeLeaveGroup({
         groupId,
         memberCount: 0,
         bot,
         message: config.errorLeaveMessage,
         groupName,
-        reason: '获取群信息失败'
+        reason: '获取群信息失败',
+        shouldLeave: isCurrent
       })
       return false
     }
@@ -134,17 +173,20 @@ export async function checkAndLeaveGroupWithRetry(groupId, bot, retryCount = 0, 
     if (onInsufficient && await onInsufficient(groupId, memberCount, bot)) {
       return true
     }
+    if (!isCurrent()) return false
     const message = config.leaveMessage
       .replace('{memberCount}', memberCount)
       .replace('{minMemberCount}', config.minMemberCount)
     const groupName = await getGroupName(parseInt(groupId), bot)
+    if (!isCurrent()) return false
     await executeLeaveGroup({
       groupId,
       memberCount,
       bot,
       message,
       groupName,
-      reason: '群成员数量不足'
+      reason: '群成员数量不足',
+      shouldLeave: isCurrent
     })
     return true
   } else {

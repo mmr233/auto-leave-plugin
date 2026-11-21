@@ -28,10 +28,31 @@ function parseCard(value) {
     const groupId = url.searchParams.get('groupcode') || ''
     const groupName = (url.searchParams.get('groupname') || '').replace(/[\r\n\t]/g, ' ').trim().slice(0, 120)
     const receiverId = url.searchParams.get('receiveruin') || ''
-    return /^\d+$/.test(groupId) && groupName ? { groupId, groupName, receiverId } : null
+    const senderId = url.searchParams.get('senderuin') || ''
+    return /^\d+$/.test(groupId)
+      ? { groupId, groupName: groupName || '未知群名', receiverId, senderId: /^\d+$/.test(senderId) ? senderId : '' }
+      : null
   } catch {
     return null
   }
+}
+
+export function extractInviteCard(event) {
+  if ((event?.message_type && event.message_type !== 'private') || (!event?.message_type && event?.group_id)) return null
+  const candidates = Array.isArray(event?.message)
+    ? event.message.filter(item => item?.type === 'json').map(item => item.data?.data ?? item.data)
+    : []
+  if (typeof event?.msg === 'string' && event.msg.trim().startsWith('{')) candidates.push(event.msg)
+  if (typeof event?.raw_message === 'string') {
+    const raw = event.raw_message.match(/\[CQ:json,data=([^\]]*)\]/i)?.[1]
+    if (raw) candidates.push(raw.replace(/&#44;/g, ',').replace(/&#91;/g, '[').replace(/&#93;/g, ']').replace(/&amp;/g, '&'))
+  }
+  const botId = String(event?.self_id || event?.bot?.uin || event?.bot?.self_id || '')
+  for (const candidate of candidates) {
+    const card = parseCard(candidate)
+    if (card && cardKey(event, card.groupId) && (!card.receiverId || card.receiverId === botId)) return card
+  }
+  return null
 }
 
 export function rememberInviteCard(event) {
@@ -50,23 +71,9 @@ export function rememberInviteCard(event) {
     shareCache.set(sender, { links: [...new Set([...links, ...previous])].slice(0, 3), receivedAt: Date.now() })
     while (shareCache.size > MAX_CARDS) shareCache.delete(shareCache.keys().next().value)
   }
-  const candidates = Array.isArray(event?.message)
-    ? event.message.filter(item => item?.type === 'json').map(item => item.data?.data ?? item.data)
-    : []
-  if (typeof event?.msg === 'string' && event.msg.trim().startsWith('{')) candidates.push(event.msg)
-  if (typeof event?.raw_message === 'string') {
-    const raw = event.raw_message.match(/\[CQ:json,data=([^\]]*)\]/i)?.[1]
-    if (raw) {
-      candidates.push(raw.replace(/&#44;/g, ',').replace(/&#91;/g, '[').replace(/&#93;/g, ']').replace(/&amp;/g, '&'))
-    }
-  }
-
-  for (const candidate of candidates) {
-    const card = parseCard(candidate)
-    if (!card) continue
+  const card = extractInviteCard(event)
+  if (card) {
     const key = cardKey(event, card.groupId)
-    const botId = String(event?.self_id || event?.bot?.uin || event?.bot?.self_id || '')
-    if (!key || (card.receiverId && card.receiverId !== botId)) continue
     const now = Date.now()
     for (const [cachedKey, cached] of cardCache) {
       if (now - cached.receivedAt > CARD_CACHE_MS) cardCache.delete(cachedKey)

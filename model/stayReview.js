@@ -1,6 +1,6 @@
 import { Config } from '../components/config.js'
-import { executeLeaveGroup } from './groupCheck.js'
-import { InviteManagementService, REVIEW_MODE } from './inviteManagement.js'
+import { cancelJoinCheck, executeLeaveGroup } from './groupCheck.js'
+import { InviteManagementService, REVIEW_MODE, isInviteNoticeInFlight, isPendingDecisionInFlight } from './inviteManagement.js'
 import { callBotApi } from '../utils/groupAdmin.js'
 import { isApiSuccess, sendGroupMessage } from '../utils/groupInfo.js'
 
@@ -179,7 +179,7 @@ async function notifyStayReview(review, bot) {
     const excludeBot = service.config.excludeBotFromPrecheck
     const updated = {
       ...current,
-      groupName: groupInfo.groupName || current.groupName,
+      groupName: groupInfo.groupName && groupInfo.groupName !== '未知群名' ? groupInfo.groupName : current.groupName,
       nickname: userInfo.nickname || current.nickname,
       memberCount: count,
       checkedMemberCount: count == null ? null : Math.max(0, count - (excludeBot ? 1 : 0)),
@@ -198,6 +198,18 @@ async function notifyStayReview(review, bot) {
   }
 }
 
+function mergePendingReview(existing, pending) {
+  const linked = pending[0]
+  return {
+    ...existing,
+    userId: existing.userId || linked?.userId || '',
+    requestIds: [...new Set([...(existing.requestIds || []), ...pending.map(item => item.requestId)])],
+    msgIds: [...new Set([...existing.msgIds, ...pending.flatMap(item => item.msgIds)])],
+    manageGroupIds: [...new Set([...existing.manageGroupIds, ...pending.flatMap(item => item.manageGroupIds)])],
+    noticeSent: existing.noticeSent || pending.some(item => item.noticeSent)
+  }
+}
+
 export async function beginStayReview(groupId, memberCount, bot, options = {}) {
   const service = new InviteManagementService({ bot })
   const reviewType = options.reviewType || 'low_members'
@@ -206,34 +218,42 @@ export async function beginStayReview(groupId, memberCount, bot, options = {}) {
     return false
   }
   const existing = service.getStayReviews().find(item => item.groupId === String(groupId))
+  const pending = service.getPendingRequests().filter(item => item.groupId === String(groupId))
+  const linked = pending.find(item => item.userId === String(options.userId || '')) || pending[0]
   if (existing) {
-    scheduleReview(existing, bot)
-    if (existing.reviewType !== 'cooldown' && !existing.noticeSent) await notifyStayReview(existing, bot)
+    const merged = mergePendingReview(existing, pending)
+    if (pending.length && !service.saveStayReview(merged, { promotePending: true })) return false
+    scheduleReview(merged, bot)
+    if (merged.reviewType !== 'cooldown' && !merged.noticeSent && !pending.some(isInviteNoticeInFlight)) await notifyStayReview(merged, bot)
     return true
   }
 
   const now = Date.now()
   const review = {
     kind: 'stay',
-    requestId: `${service.botId}-stay-${now.toString(36)}-${groupId}`,
+    requestId: linked?.requestId || `${service.botId}-stay-${now.toString(36)}-${groupId}`,
+    requestIds: pending.map(item => item.requestId),
     botId: service.botId,
     groupId: String(groupId),
-    groupName: '未知群名',
-    userId: String(options.userId || ''),
-    nickname: '未知用户',
+    groupName: linked?.groupName || '未知群名',
+    userId: linked?.userId || String(options.userId || ''),
+    nickname: linked?.nickname || '未知用户',
     memberCount,
     reviewType,
     cooldownMinutes: reviewType === 'cooldown' ? 0 : service.config.stayReviewCooldownMinutes,
     joinObservedAt: now,
-    requestTime: now,
-    expiresAt: reviewType === 'cooldown' ? now : now + service.config.stayReviewMinutes * 60 * 1000,
+    requestTime: linked?.requestTime || now,
+    expiresAt: reviewType === 'cooldown' ? now : linked
+      ? Math.min(...pending.map(item => item.requestTime + service.expireMs))
+      : now + service.config.stayReviewMinutes * 60 * 1000,
     status: 'pending',
-    msgIds: [],
-    manageGroupIds: []
+    noticeSent: pending.some(item => item.noticeSent),
+    msgIds: [...new Set(pending.flatMap(item => item.msgIds))],
+    manageGroupIds: [...new Set(pending.flatMap(item => item.manageGroupIds))]
   }
-  if (!service.saveStayReview(review)) return false
+  if (!service.saveStayReview(review, { promotePending: pending.length > 0 })) return false
   scheduleReview(review, bot)
-  if (reviewType === 'cooldown') return true
+  if (reviewType === 'cooldown' || review.noticeSent || pending.some(isInviteNoticeInFlight)) return true
   const notified = await notifyStayReview(review, bot)
   if (reviewType === 'low_members' && notified && !notified.manageGroupIds.length && !notified.notifiedUserIds.length && !notified.masterNotified) {
     const latest = new InviteManagementService({ bot }).getStayReviews().find(item => item.requestId === review.requestId)
@@ -262,8 +282,10 @@ export async function decideStayReview(review, approve, bot) {
   if (approve) {
     if (!service.removeStayReview(current)) return { ok: false, message: '保存留群审核结果失败' }
     cancelTimer(current)
+    cancelJoinCheck(current.groupId, bot)
     return { ok: true, message: service.formatInviteMessage('stayApproved', current) }
   }
+  cancelJoinCheck(current.groupId, bot)
   const success = await leaveAfterReview(current, bot, '留群审核被拒绝')
   return {
     ok: success,
@@ -276,6 +298,7 @@ export async function decideStayReview(review, approve, bot) {
 export function cancelStayReviewForGroup(e) {
   const botId = String(e.bot?.uin || e.bot?.self_id || e.self_id || '')
   if (String(e.user_id) !== botId) return false
+  cancelJoinCheck(e.group_id, e.bot || globalThis.Bot)
   const service = new InviteManagementService(e)
   const review = service.getStayReviews().find(item => item.groupId === String(e.group_id))
   if (!review) return false
@@ -289,14 +312,25 @@ export function cancelStayReviewForGroup(e) {
 
 export function reconcileStayReviews() {
   const reviews = Config.loadConfig().inviteManagement?.stayReviews || []
-  for (const review of reviews) {
+  for (const stored of reviews) {
+    let review = stored
     const bot = resolveBot(review.botId)
     if (!bot) continue
+    const service = new InviteManagementService({ bot })
+    const pending = service.getPendingRequests().filter(item => item.groupId === String(review.groupId))
+    if (pending.length && !pending.some(isPendingDecisionInFlight)) {
+      const existing = service.getStayReviews().find(item => item.requestId === review.requestId)
+      if (existing) {
+        const merged = mergePendingReview(existing, pending)
+        if (service.saveStayReview(merged, { promotePending: true })) review = merged
+      }
+    }
     if (review.status === 'leaving' && timers.has(reviewKey(review))) {
       cancelTimer(review)
     }
     scheduleReview(review, bot)
-    if (review.status === 'pending' && review.reviewType !== 'cooldown' && !review.noticeSent && Date.now() < review.expiresAt) {
+    if (review.status === 'pending' && review.reviewType !== 'cooldown' && !review.noticeSent && Date.now() < review.expiresAt &&
+      !(review.requestIds || []).some(requestId => isInviteNoticeInFlight({ botId: review.botId, requestId }))) {
       notifyStayReview(review, bot).catch(err => logger.error(`[自动退群] 重试留群审核通知失败: ${err.message}`))
     }
   }

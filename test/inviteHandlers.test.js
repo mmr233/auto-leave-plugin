@@ -302,6 +302,22 @@ test('a failed protocol response leaves the invitation pending', async () => {
   }
 })
 
+test('a failed approval-state save never sends an unprotected approval to the protocol', async () => {
+  resetConfig()
+  addInvite()
+  const save = Config.saveConfig
+  Config.saveConfig = () => false
+  try {
+    const { event, replies } = command('t确认加群 222222', 't确认加群 222222', { message: [{ type: 'text', text: 't确认加群 222222' }] })
+    await new BotInviteConfirmHandler().handleConfirm(event)
+    assert.match(replies[0], /无法保存本次批准状态/)
+    assert.equal(calls.some(call => call.action === 'set_group_add_request'), false)
+  } finally {
+    Config.saveConfig = save
+  }
+  assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 1)
+})
+
 test('private card metadata reaches the matching invitation review notice', async () => {
   resetConfig()
   const config = Config.loadConfig()
@@ -334,6 +350,413 @@ test('private card metadata reaches the matching invitation review notice', asyn
   assert.match(notice, /群名：测试群/)
   assert.match(notice, /当前人数：56/)
   assert.equal(new InviteManagementService({ bot }).getPendingRequests()[0]?.flag, 'card-request')
+})
+
+test('a direct join converts an existing invitation into a single review', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.minMemberCount = 60
+  config.inviteManagement.notifyGroups = [777777]
+  config.inviteManagement.requestExpireMinutes = 1
+  Config.saveConfig(config)
+  const invite = { bot, self_id: '10001', user_id: '30003', group_id: '222222', flag: 'direct-join' }
+  await new BotInviteRequestHandler().accept(invite)
+  const original = new InviteManagementService({ bot }).getPendingRequests()[0]
+  assert.ok(original)
+  assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+
+  bot.gl.set(222222, { group_name: '实际群', member_count: 20 })
+  const { processGroupJoin } = await import('../model/index.js')
+  await processGroupJoin({ ...invite, user_id: '10001', operator_id: '30003' })
+  let service = new InviteManagementService({ bot })
+  const review = service.getStayReviews()[0]
+  assert.equal(service.getPendingRequests().length, 0)
+  assert.equal(review?.requestId, original.requestId)
+  assert.ok(review.msgIds.includes('444'))
+  assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+
+  const { event, replies } = command('[CQ:reply,id=444]t确认加群', 't确认加群', {
+    message: [{ type: 'reply', id: 444 }, { type: 'text', text: 't确认加群' }]
+  })
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /批准机器人留群/)
+  service = new InviteManagementService({ bot })
+  assert.equal(service.getStayReviews().length, 0)
+  assert.equal(service.getPendingRequests().length, 0)
+  assert.ok(calls.some(call => call.action === 'send_private_msg' && /批准机器人留群/.test(call.params.message)))
+})
+
+test('a joined whitelist group clears its old invitation and expiry timer', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.whiteGroups = [222222]
+  config.inviteManagement.requestExpireMinutes = 1
+  Config.saveConfig(config)
+  const service = new InviteManagementService({ bot })
+  service.addPendingRequest({
+    requestId: 'whitelist-join', botId: '10001', groupId: '222222', groupName: '白名单群',
+    userId: '30003', flag: 'whitelist-join', requestTime: Date.now() - 59800,
+    msgIds: ['222'], manageGroupIds: ['777777']
+  })
+  bot.gl.set(222222, { group_name: '白名单群', member_count: 20 })
+  const { processGroupJoin } = await import('../model/index.js')
+  await processGroupJoin({ bot, self_id: '10001', user_id: '10001', group_id: '222222', operator_id: '30003' })
+  assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+  assert.ok(calls.some(call => call.action === 'send_private_msg' && /白名单群/.test(call.params.message)))
+  await new Promise(resolve => setTimeout(resolve, 250))
+  assert.equal(calls.some(call => call.action === 'send_private_msg' && /插件内审核已到期/.test(call.params.message)), false)
+})
+
+test('restart keeps the original deadline for an expired invitation whose bot joined', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.requestExpireMinutes = 1
+  config.inviteManagement.pendingRequests = [{
+    requestId: 'expired-joined', botId: '10001', groupId: '222222', groupName: '已入群',
+    userId: '30003', flag: 'expired-joined', requestTime: Date.now() - 61000,
+    msgIds: ['222'], manageGroupIds: ['777777'], noticeSent: true
+  }]
+  Config.saveConfig(config)
+  bot.gl.set(222222, { group_name: '已入群', member_count: 20 })
+  const { reconcilePendingInviteRequests } = await import('../model/inviteManagement.js')
+  reconcilePendingInviteRequests()
+  const reviewDeadline = Date.now() + 1000
+  let service = new InviteManagementService({ bot })
+  while (!service.getStayReviews().length && Date.now() < reviewDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+    service = new InviteManagementService({ bot })
+  }
+  const review = service.getStayReviews()[0]
+  assert.equal(review?.requestId, 'expired-joined')
+  assert.ok(review.expiresAt < Date.now())
+  assert.equal(service.getPendingRequests().length, 0)
+  const leaveDeadline = Date.now() + 4000
+  while ((!calls.some(call => call.action === 'leave') || new InviteManagementService({ bot }).getStayReviews().length) && Date.now() < leaveDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.equal(calls.filter(call => call.action === 'leave').length, 1)
+  assert.equal(new InviteManagementService({ bot }).getStayReviews().length, 0)
+  assert.equal(calls.some(call => call.action === 'send_private_msg' && /插件内审核已到期/.test(call.params.message)), false)
+})
+
+test('a confirmation detects a bot that joined before its join event was processed', async () => {
+  resetConfig()
+  addInvite()
+  bot.gl.set(222222, { group_name: '已入群', member_count: 20 })
+  const { event, replies } = command('[CQ:reply,id=222]t确认加群', 't确认加群', {
+    message: [{ type: 'reply', id: 222 }, { type: 'text', text: 't确认加群' }]
+  })
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /批准机器人留群/)
+  assert.equal(calls.some(call => call.action === 'set_group_add_request'), false)
+  assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+  assert.equal(new InviteManagementService({ bot }).getStayReviews().length, 0)
+})
+
+test('a legacy duplicate invitation is cleared when its stay review is approved', async () => {
+  resetConfig()
+  addStayReview()
+  const service = new InviteManagementService({ bot })
+  service.addPendingRequest({
+    requestId: '10001-old-111111', botId: '10001', groupId: '111111', groupName: '已有群',
+    userId: '30003', flag: 'old-flag', requestTime: Date.now() - 59900, msgIds: ['222'], manageGroupIds: ['777777']
+  })
+  const { event, replies } = command('[CQ:reply,id=111]t确认加群', 't确认加群')
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /批准机器人留群/)
+  assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+  await new Promise(resolve => setTimeout(resolve, 180))
+  assert.equal(calls.some(call => call.action === 'send_private_msg' && /审核有效期内未处理/.test(call.params.message)), false)
+})
+
+test('restart reconciliation merges legacy records and keeps old invitation references usable', async () => {
+  resetConfig()
+  addStayReview()
+  new InviteManagementService({ bot }).addPendingRequest({
+    requestId: '10001-old-ref-111111', botId: '10001', groupId: '111111', groupName: '已有群',
+    userId: '30003', flag: 'old-ref', requestTime: Date.now(), msgIds: ['222'], manageGroupIds: ['777777']
+  })
+  const { reconcileStayReviews } = await import('../model/stayReview.js')
+  reconcileStayReviews()
+  const service = new InviteManagementService({ bot })
+  assert.equal(service.getPendingRequests().length, 0)
+  assert.equal(service.findStayReviews({ requestId: '10001-old-ref-111111' }).length, 1)
+  const { event, replies } = command('[CQ:reply,id=222]t确认加群', 't确认加群', {
+    message: [{ type: 'reply', id: 222 }, { type: 'text', text: 't确认加群' }]
+  })
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /批准机器人留群/)
+})
+
+test('an approval still being processed at the deadline does not send a false expiry', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.requestExpireMinutes = 1
+  Config.saveConfig(config)
+  new InviteManagementService({ bot }).addPendingRequest({
+    requestId: '10001-slow-222222', botId: '10001', groupId: '222222', groupName: '测试群',
+    userId: '30003', flag: 'slow-approval', requestTime: Date.now() - 59850,
+    msgIds: ['222'], manageGroupIds: ['777777']
+  })
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => {
+    if (action === 'set_group_add_request') await new Promise(resolve => setTimeout(resolve, 250))
+    return sendApi.call(bot, action, params)
+  }
+  try {
+    const { event, replies } = command('t确认加群 222222', 't确认加群 222222')
+    await new BotInviteConfirmHandler().handleConfirm(event)
+    assert.match(replies[0], /加群请求已同意/)
+    assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+    assert.equal(calls.some(call => call.action === 'send_private_msg' && /审核已结束/.test(call.params.message)), false)
+  } finally {
+    bot.sendApi = sendApi
+  }
+})
+
+test('approving a stay cancels an older delayed join check', async () => {
+  resetConfig()
+  const { scheduleJoinCheck } = await import('../model/groupCheck.js')
+  let checked = false
+  scheduleJoinCheck('111111', bot, async () => { checked = true }, 80)
+  addStayReview()
+  const { event, replies } = command('[CQ:reply,id=111]t确认加群', 't确认加群')
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /批准机器人留群/)
+  await new Promise(resolve => setTimeout(resolve, 120))
+  assert.equal(checked, false)
+})
+
+test('approving a stay also cancels a join check already waiting to retry', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  const previousDelay = config.retryDelay
+  const previousMax = config.maxRetryCount
+  config.retryDelay = 50
+  config.maxRetryCount = 2
+  Config.saveConfig(config)
+  const { scheduleJoinCheck, checkAndLeaveGroupWithRetry } = await import('../model/groupCheck.js')
+  let started
+  const active = new Promise(resolve => { started = resolve })
+  const emptyBot = { ...bot, gl: new Map() }
+  scheduleJoinCheck('111111', emptyBot, async isCurrent => {
+    started()
+    return checkAndLeaveGroupWithRetry('111111', emptyBot, 0, null, isCurrent)
+  }, 0)
+  const keepAlive = setTimeout(() => {}, 500)
+  try {
+    await active
+    addStayReview()
+    const { event, replies } = command('[CQ:reply,id=111]t确认加群', 't确认加群')
+    await new BotInviteConfirmHandler().handleConfirm(event)
+    assert.match(replies[0], /批准机器人留群/)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.equal(calls.some(call => call.action === 'leave'), false)
+  } finally {
+    clearTimeout(keepAlive)
+    const latest = Config.loadConfig()
+    latest.retryDelay = previousDelay
+    latest.maxRetryCount = previousMax
+    Config.saveConfig(latest)
+  }
+})
+
+test('force approval of a current group cancels its old check without granting a future exemption', async () => {
+  resetConfig()
+  const { scheduleJoinCheck } = await import('../model/groupCheck.js')
+  let checked = false
+  scheduleJoinCheck('111111', bot, async () => { checked = true }, 80)
+  const { event, replies } = command('t强制确认加群 111111', 't强制确认加群 111111')
+  await new BotInviteConfirmHandler().handleConfirm(event)
+  assert.match(replies[0], /强制允许机器人留在群/)
+  assert.equal(new InviteManagementService({ bot }).isApprovedGroup('111111'), false)
+  await new Promise(resolve => setTimeout(resolve, 120))
+  assert.equal(checked, false)
+})
+
+test('joining while the invitation notice is being sent preserves the original reference', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.notifyGroups = [777777]
+  Config.saveConfig(config)
+  const send = bot.sendGroupMsg
+  let release
+  let started
+  const sending = new Promise(resolve => { started = resolve })
+  bot.sendGroupMsg = async (groupId, message) => {
+    calls.push({ action: 'notify', groupId, message })
+    started()
+    await new Promise(resolve => { release = resolve })
+    return { message_id: 444 }
+  }
+  try {
+    const invite = { bot, self_id: '10001', user_id: '30003', group_id: '222222', flag: 'notice-race' }
+    const accepting = new BotInviteRequestHandler().accept(invite)
+    await sending
+    bot.gl.set(222222, { group_name: '并发群', member_count: 20 })
+    const { processGroupJoin } = await import('../model/index.js')
+    await processGroupJoin({ ...invite, user_id: '10001', operator_id: '30003' })
+    release()
+    await accepting
+    const service = new InviteManagementService({ bot })
+    assert.equal(service.getPendingRequests().length, 0)
+    const review = service.getStayReviews()[0]
+    assert.ok(review?.msgIds.includes('444'))
+    assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+    const { event, replies } = command('[CQ:reply,id=444]t确认加群', 't确认加群', {
+      message: [{ type: 'reply', id: 444 }, { type: 'text', text: 't确认加群' }]
+    })
+    await new BotInviteConfirmHandler().handleConfirm(event)
+    assert.match(replies[0], /批准机器人留群/)
+  } finally {
+    release?.()
+    bot.sendGroupMsg = send
+  }
+})
+
+test('card recovery uses only an unchecked SnowLuma invitation for this bot and sender', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.notifyGroups = [777777]
+  Config.saveConfig(config)
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => action === 'get_group_system_msg'
+    ? { status: 'ok', data: [
+      { group_id: 222222, requester_uin: 10001, invitor_uin: 30003, checked: false, flag: 'real-system-flag' },
+      { group_id: 222222, requester_uin: 99999, invitor_uin: 30003, checked: false, flag: 'other-target' }
+    ] }
+    : sendApi.call(bot, action, params)
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&groupname=%E6%B5%8B%E8%AF%95%E7%BE%A4&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  try {
+    const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+    await new BotInviteCardHandler().recoverCard(event)
+    assert.equal(new InviteManagementService({ bot }).getPendingRequests()[0]?.flag, 'real-system-flag')
+    assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+    assert.equal(calls.some(call => call.action === 'set_group_add_request'), false)
+    await new BotInviteRequestHandler().accept({ ...event, group_id: '222222', flag: 'real-system-flag' })
+    assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+  } finally {
+    bot.sendApi = sendApi
+  }
+})
+
+test('a forwarded card matches the real inviter without giving the forwarder approval rights', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.notifyGroups = [777777]
+  config.inviteManagement.allowInviterConfirm = true
+  Config.saveConfig(config)
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => action === 'get_group_system_msg'
+    ? { status: 'ok', data: [{ group_id: 222222, requester_uin: 10001, invitor_uin: 40004, checked: false, flag: 'forwarded-card' }] }
+    : sendApi.call(bot, action, params)
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&senderuin=40004&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  try {
+    const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+    await new BotInviteCardHandler().recoverCard(event)
+    const service = new InviteManagementService({ bot })
+    const pending = service.getPendingRequests()[0]
+    assert.equal(pending?.flag, 'forwarded-card')
+    assert.equal(pending.userId, '40004')
+    assert.equal(await service.canHandleRequest({ user_id: '30003' }, pending), false)
+    assert.equal(await service.canHandleRequest({ user_id: '40004' }, pending), true)
+    assert.ok(calls.some(call => call.action === 'send_private_msg' && call.params.user_id === 30003 && /真实邀请/.test(call.params.message)))
+    assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+  } finally {
+    bot.sendApi = sendApi
+  }
+})
+
+test('a card with multiple matching invitations cannot select one to process', async () => {
+  resetConfig()
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => action === 'get_group_system_msg'
+    ? { status: 'ok', data: [
+      { group_id: 222222, requester_uin: 10001, invitor_uin: 30003, checked: false, flag: 'sender-invite' },
+      { group_id: 222222, requester_uin: 10001, invitor_uin: 40004, checked: false, flag: 'original-invite' }
+    ] }
+    : sendApi.call(bot, action, params)
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&senderuin=40004&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  try {
+    const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+    await new BotInviteCardHandler().recoverCard(event)
+    assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+    assert.equal(calls.some(call => call.action === 'set_group_add_request'), false)
+    assert.ok(calls.some(call => call.action === 'send_private_msg' && /未找到唯一/.test(call.params.message)))
+  } finally {
+    bot.sendApi = sendApi
+  }
+})
+
+test('a card for an existing invitation receives a status reply without another review', async () => {
+  resetConfig()
+  addInvite()
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+  await new BotInviteCardHandler().recoverCard(event)
+  assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 1)
+  assert.equal(calls.some(call => call.action === 'notify'), false)
+  assert.ok(calls.some(call => call.action === 'send_private_msg' && /已在审核中/.test(call.params.message)))
+})
+
+test('a card with no matching real invitation gets an explanation and cannot create a request', async () => {
+  resetConfig()
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => action === 'get_group_system_msg'
+    ? { status: 'ok', data: [{ group_id: 222222, requester_uin: 10001, invitor_uin: 99999, checked: false, flag: 'unrelated' }] }
+    : sendApi.call(bot, action, params)
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&groupname=%E6%B5%8B%E8%AF%95%E7%BE%A4&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  try {
+    const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+    await new BotInviteCardHandler().recoverCard(event)
+    assert.equal(new InviteManagementService({ bot }).getPendingRequests().length, 0)
+    assert.equal(calls.some(call => call.action === 'set_group_add_request'), false)
+    assert.ok(calls.some(call => call.action === 'send_private_msg' && /未找到.*邀请/.test(call.params.message)))
+  } finally {
+    bot.sendApi = sendApi
+  }
+})
+
+test('receiving a private invitation card schedules recovery without another request event', async () => {
+  resetConfig()
+  const config = Config.loadConfig()
+  config.inviteManagement.notifyGroups = [777777]
+  Config.saveConfig(config)
+  const sendApi = bot.sendApi
+  bot.sendApi = async (action, params) => action === 'get_group_system_msg'
+    ? { status: 'ok', data: [{ group_id: 222222, requester_uin: 10001, invitor_uin: 30003, checked: false, flag: 'scheduled-card' }] }
+    : sendApi.call(bot, action, params)
+  const card = { bizsrc: 'qun.invite', meta: { news: {
+    jumpUrl: 'mqqapi://group/invite_join?groupcode=222222&receiveruin=10001'
+  } } }
+  const event = { bot, self_id: '10001', user_id: '30003', message_type: 'private', message: [{ type: 'json', data: JSON.stringify(card) }] }
+  try {
+    const { BotInviteCardHandler } = await import(pathToFileURL(path.join(runtimePlugin, 'apps', 'inviteManagement.js')).href)
+    assert.equal(await new BotInviteCardHandler().accept(event), false)
+    const deadline = Date.now() + 4000
+    while (!new InviteManagementService({ bot }).getPendingRequests().length && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    assert.equal(new InviteManagementService({ bot }).getPendingRequests()[0]?.flag, 'scheduled-card')
+    assert.equal(calls.filter(call => call.action === 'notify').length, 1)
+  } finally {
+    bot.sendApi = sendApi
+  }
 })
 
 test('post-join mode accepts an invitation, then reviews the actual joined group', async () => {

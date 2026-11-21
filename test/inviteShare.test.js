@@ -56,6 +56,21 @@ test('uses an official share page only after protocol queries fail', async () =>
   }
 })
 
+test('uses the card sender share link when the original invitation was forwarded', async () => {
+  remember('30006')
+  const original = globalThis.fetch
+  globalThis.fetch = async () => new Response(page(), { status: 200 })
+  try {
+    const info = await service().getGroupInfo('123456', {
+      self_id: '10001', user_id: '40004', cardSenderId: '30006', flag: 'forwarded-flag'
+    })
+    assert.equal(info.memberCount, 56)
+    assert.equal(info.groupName, '分享页测试群')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('ignores another group and refuses redirects outside the official allowlist', async () => {
   remember('30004')
   const original = globalThis.fetch

@@ -4,11 +4,11 @@ import { checkBannedWords } from './bannedWordCheck.js'
 import { executeLeaveGroup } from './groupCheck.js'
 import { clearRetryCount, clearMuteCount } from './muteCheck.js'
 import { addToBlacklistAuto, addToWhitelist } from './listManager.js'
-import { checkAndLeaveGroupWithRetry } from './groupCheck.js'
+import { checkAndLeaveGroupWithRetry, scheduleJoinCheck } from './groupCheck.js'
 import { addUserToBlacklist } from '../utils/yunzaiConfig.js'
 import { sleep } from '../utils/common.js'
 import { initGroupAdminRuntime } from './groupAdminRuntime.js'
-import { InviteManagementService, normalizeIdList, reconcilePendingInviteRequests, REVIEW_MODE } from './inviteManagement.js'
+import { InviteManagementService, normalizeIdList, reconcilePendingInviteRequests, REVIEW_MODE, isPendingDecisionInFlight } from './inviteManagement.js'
 import { beginStayReview, cancelStayReviewForGroup, reconcileStayReviews } from './stayReview.js'
 import { rememberInviteCard } from './inviteCard.js'
 
@@ -44,6 +44,15 @@ export async function handleGroupIncrease(e) {
   await processGroupJoin(e)
 }
 
+async function resolveJoinedInvites(service, groupId, message) {
+  const resolved = service.resolvePendingGroup(groupId)
+  if (!resolved) {
+    logger.error(`[自动退群] 群 ${groupId} 已处理，但清理旧邀请失败`)
+    return
+  }
+  for (const request of resolved) await service.notifyInviter(request, message)
+}
+
 /**
  * 处理机器人进群
  */
@@ -77,6 +86,7 @@ export async function processGroupJoin(e) {
       })
       const pending = inviteService.getPendingJoin(groupId)
       if (left && pending) inviteService.removePendingJoin(pending)
+      if (left) await resolveJoinedInvites(inviteService, groupId, `机器人已退出群 ${groupId}，原因：该群在黑名单中`)
       return
     }
 
@@ -88,6 +98,7 @@ export async function processGroupJoin(e) {
     if (whitelist.includes(String(groupId))) {
       const pending = inviteService.getPendingJoin(groupId)
       if (pending) inviteService.removePendingJoin(pending)
+      await resolveJoinedInvites(inviteService, groupId, `机器人已进入白名单群 ${groupId}，本次邀请无需审核`)
       logger.info(`[自动退群] 群 ${groupId} 在白名单中，跳过检查`)
       // 发送白名单进群提示
       if (config.whitelistJoinMessage) {
@@ -115,6 +126,12 @@ export async function processGroupJoin(e) {
       return
     }
 
+    if (inviteService.getPendingRequests().some(item => item.groupId === String(groupId) && isPendingDecisionInFlight(item))) {
+      const retry = setTimeout(() => processGroupJoin(e), 500)
+      retry.unref?.()
+      return
+    }
+
     const approvedByInvite = inviteService.isApprovedGroup(groupId)
       ? inviteService.consumeApprovedGroup(groupId)
       : false
@@ -123,12 +140,14 @@ export async function processGroupJoin(e) {
     if (approvedByInvite) {
       const pending = inviteService.getPendingJoin(groupId)
       if (pending) inviteService.removePendingJoin(pending)
+      await resolveJoinedInvites(inviteService, groupId, `机器人已进入群 ${groupId}，本次邀请审核已结束`)
       logger.info(`[自动退群] 群 ${groupId} 已通过邀请审核，跳过本次人数检查`)
       return
     }
 
     const pendingJoin = inviteService.getPendingJoin(groupId)
-    if (pendingJoin || (inviteService.config.enabled && inviteService.config.reviewMode === REVIEW_MODE.POST_JOIN)) {
+    const pendingInvites = inviteService.getPendingRequests().filter(item => item.groupId === String(groupId))
+    if (pendingJoin || pendingInvites.length || (inviteService.config.enabled && inviteService.config.reviewMode === REVIEW_MODE.POST_JOIN)) {
       const started = await beginStayReview(groupId, null, e.bot || Bot, {
         reviewType: 'post_join',
         userId: pendingJoin?.userId || e.operator_id
@@ -144,10 +163,15 @@ export async function processGroupJoin(e) {
     // 清除该群的重试计数（如果存在）
     clearRetryCount(groupId)
 
-    setTimeout(() => {
-      checkAndLeaveGroupWithRetry(groupId, e.bot || Bot, 0, beginStayReview)
-        .catch(err => logger.error(`[自动退群] 检查群 ${groupId} 人数失败: ${err.message}`))
-    }, 5000)
+    const bot = e.bot || Bot
+    scheduleJoinCheck(groupId, bot, async isCurrent => {
+      if (!isCurrent()) return
+      const current = new InviteManagementService(e)
+      return current.findPendingRequests({ groupId }).length
+        ? beginStayReview(groupId, null, bot, { reviewType: 'post_join', userId: e.operator_id })
+        : checkAndLeaveGroupWithRetry(groupId, bot, 0, (id, count, targetBot) =>
+          beginStayReview(id, count, targetBot, { userId: e.operator_id }), isCurrent)
+    })
   } catch (err) {
     logger.error('[自动退群] 处理群加入事件出错:', err)
   }
@@ -223,7 +247,7 @@ async function checkAndKickBlacklistUser(e) {
 /**
  * 初始化事件监听
  */
-export function initEventListener() {
+export function initEventListener(onInviteCard = null) {
   if (eventListenerReady) {
     return true
   }
@@ -237,7 +261,10 @@ export function initEventListener() {
     return false
   }
 
-  bot.on('message.private', rememberInviteCard)
+  bot.on('message.private', e => {
+    rememberInviteCard(e)
+    if (onInviteCard) Promise.resolve(onInviteCard(e)).catch(err => logger.error(`[自动退群] 邀请卡片监听失败: ${err.message}`))
+  })
 
   // 监听群成员增加事件（机器人进群和用户进群）
   bot.on('notice.group.increase', (e) => {

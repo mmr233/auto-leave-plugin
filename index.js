@@ -44,12 +44,14 @@ if (fs.existsSync(appsDir)) {
   }
 }
 
-const listenerReady = initEventListener()
+const CardHandler = apps.inviteManagement_BotInviteCardHandler
+const onInviteCard = CardHandler ? e => new CardHandler().accept(e) : null
+const listenerReady = initEventListener(onInviteCard)
 if (!listenerReady) {
   let attempts = 0
   const listenerRetry = setInterval(() => {
     attempts++
-    if (initEventListener() || attempts >= 60) {
+    if (initEventListener(onInviteCard) || attempts >= 60) {
       clearInterval(listenerRetry)
     }
   }, 1000)

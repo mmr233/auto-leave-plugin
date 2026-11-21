@@ -6,10 +6,19 @@ import {
   PRECHECK_MODE_LABEL,
   PRECHECK_FAILURE_ACTION_LABEL,
   getInviteTargetId,
-  isInviteForCurrentBot
+  getGroupSystemRequests,
+  isInviteForCurrentBot,
+  isPendingDecisionInFlight,
+  setInviteNoticeInFlight
 } from '../model/inviteManagement.js'
-import { decideStayReview } from '../model/stayReview.js'
+import { beginStayReview, decideStayReview } from '../model/stayReview.js'
+import { extractInviteCard, rememberInviteCard } from '../model/inviteCard.js'
+import { cancelJoinCheck } from '../model/groupCheck.js'
 import { getCommandText, prepareCommandRules } from '../utils/command.js'
+
+const activeInvites = new Set()
+const recentInvites = new Map()
+const cardTimers = new Map()
 
 function getText(e) {
   return getCommandText(e)
@@ -29,6 +38,35 @@ function getEnabledInviteService(e) {
   return service.config.enabled ? service : null
 }
 
+async function submitInviteReview(service, request) {
+  const latest = new InviteManagementService({ bot: service.bot })
+  if (latest.isBotAlreadyInGroup(request.groupId) || latest.getStayReviews().some(item => item.groupId === request.groupId)) {
+    const started = await beginStayReview(request.groupId, null, service.bot, { reviewType: 'post_join', userId: request.userId })
+    await latest.notifyInviter(request, started
+      ? `机器人已进入群 ${request.groupId}，正在等待留群审核`
+      : `机器人已进入群 ${request.groupId}，但留群审核创建失败，请联系机器人主人`)
+    return
+  }
+  setInviteNoticeInFlight(request, true)
+  try {
+    if (!latest.addPendingRequest(request)) return
+    const notified = await latest.sendReviewNotifications(request)
+    const delivered = notified.manageGroupIds.length > 0 || notified.notifiedUserIds.length > 0 || notified.masterNotified
+    if (!latest.recordReviewNotification(request, notified)) return
+    if (!delivered) {
+      if (new InviteManagementService({ bot: service.bot }).findPendingRequest({ requestId: request.requestId })) {
+        latest.removePendingRequest(request.requestId)
+      }
+      await latest.notifyInviter(request, latest.formatInviteMessage('noNotifyTarget', request))
+      logger.warn('[自动退群] 未配置可用的群邀请审核通知目标')
+      return
+    }
+    await latest.notifyInviter(request, latest.buildInviteeMessage(request, 'inviteSubmitted'))
+  } finally {
+    setInviteNoticeInFlight(request, false)
+  }
+}
+
 export class BotInviteRequestHandler extends plugin {
   constructor() {
     super({
@@ -40,6 +78,27 @@ export class BotInviteRequestHandler extends plugin {
   }
 
   async accept(e = this.e) {
+    const service = new InviteManagementService(e)
+    const key = `${service.botId}:${String(e.flag || '')}`
+    if (service.botId && e.flag) {
+      if (activeInvites.has(key) || (recentInvites.get(key) || 0) > Date.now() ||
+        service.getPendingRequests().some(item => item.flag === String(e.flag))) return true
+      activeInvites.add(key)
+    }
+    try {
+      const handled = await this.handleInvite(e)
+      if (handled && service.botId && e.flag) {
+        const now = Date.now()
+        for (const [item, expiresAt] of recentInvites) if (expiresAt <= now) recentInvites.delete(item)
+        recentInvites.set(key, now + 10000)
+      }
+      return handled
+    } finally {
+      activeInvites.delete(key)
+    }
+  }
+
+  async handleInvite(e = this.e) {
     const service = new InviteManagementService(e)
 
     if (!service.config.enabled) {
@@ -212,17 +271,7 @@ export class BotInviteRequestHandler extends plugin {
       }
 
       if (precheckAction === 'manual') {
-        const savedRequest = await service.sendReviewNotifications(request)
-        const hasMasterTarget = savedRequest.masterNotified
-
-        if (savedRequest.manageGroupIds.length === 0 && savedRequest.notifiedUserIds.length === 0 && !hasMasterTarget) {
-          await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
-          logger.warn('[自动退群] 预检查未通过，但未配置可用的审核通知目标')
-          return true
-        }
-
-        service.addPendingRequest(savedRequest)
-        await service.notifyInviter(request, service.buildInviteeMessage(request, 'inviteSubmitted'))
+        await submitInviteReview(service, request)
         return true
       }
     }
@@ -239,18 +288,85 @@ export class BotInviteRequestHandler extends plugin {
       return true
     }
 
-    const request = baseRequest
-    const savedRequest = await service.sendReviewNotifications(request)
+    await submitInviteReview(service, baseRequest)
 
-    if (savedRequest.manageGroupIds.length === 0 && savedRequest.notifiedUserIds.length === 0) {
-      await service.notifyInviter(request, service.formatInviteMessage('noNotifyTarget', request))
-      logger.warn('[自动退群] 未配置可用的群邀请审核通知目标')
+    return true
+  }
+}
+
+export class BotInviteCardHandler extends plugin {
+  constructor() {
+    super({ name: '自动退群:邀请卡片', dsc: '恢复协议端未上报的机器人群邀请', event: 'message.private', priority: 1000 })
+  }
+
+  async accept(e = this.e) {
+    const card = extractInviteCard(e)
+    if (!card || !new InviteManagementService(e).config.enabled) return false
+    rememberInviteCard(e)
+    const key = `${e.self_id || e.bot?.uin || e.bot?.self_id}:${e.user_id}:${card.groupId}`
+    if (!cardTimers.has(key)) {
+      const timer = setTimeout(() => {
+        cardTimers.delete(key)
+        this.recoverCard(e).catch(err => logger.error(`[自动退群] 邀请卡片处理失败: ${err.message}`))
+      }, 2000)
+      timer.unref?.()
+      cardTimers.set(key, timer)
+    }
+    return false
+  }
+
+  async recoverCard(e = this.e) {
+    const card = extractInviteCard(e)
+    const service = new InviteManagementService(e)
+    if (!card || !service.config.enabled) return false
+    rememberInviteCard(e)
+    const request = { groupId: card.groupId, groupName: card.groupName, userId: String(e.user_id || '') }
+    if (service.findPendingRequests({ groupId: card.groupId }).length) {
+      await service.notifyInviter(request, `群 ${card.groupId} 的邀请已在审核中，无需重复发送`)
+      return true
+    }
+    if (service.getPendingJoin(card.groupId)) {
+      await service.notifyInviter(request, `已同意加入群 ${card.groupId}，正在等待机器人入群和留群审核`)
+      return true
+    }
+    if (service.getStayReviews().some(item => item.groupId === card.groupId)) {
+      await service.notifyInviter(request, `机器人已进入群 ${card.groupId}，正在等待留群审核`)
+      return true
+    }
+    if (service.isBotAlreadyInGroup(card.groupId)) {
+      await service.notifyInviter(request, `机器人已在群 ${card.groupId}，无需再次邀请`)
       return true
     }
 
-    service.addPendingRequest(savedRequest)
-    await service.notifyInviter(request, service.buildInviteeMessage(request, 'inviteSubmitted'))
-
+    let matches = []
+    try {
+      const result = await getGroupSystemRequests(service.bot)
+      if (result) {
+        const senders = new Set([request.userId, card.senderId].filter(Boolean))
+        matches = result.entries.filter(item => {
+          const inviter = String(item.invitor_uin ?? item.inviter_id ?? item.invitor_id ?? '')
+          const target = String(item.requester_uin ?? item.requester_id ?? item.target_id ?? '')
+          return String(item.group_id ?? item.groupId ?? '') === card.groupId && senders.has(inviter) &&
+            (target ? target === service.botId : result.invitedOnly) &&
+            (item.checked === false || item.checked === 0) && typeof item.flag === 'string' && item.flag.length > 0
+        })
+      }
+    } catch (err) {
+      logger.debug?.(`[自动退群] 查询群邀请系统消息失败: ${err.message}`)
+    }
+    if (matches.length === 1) {
+      const inviterId = String(matches[0].invitor_uin ?? matches[0].inviter_id ?? matches[0].invitor_id)
+      const handled = await new BotInviteRequestHandler().accept({
+        bot: service.bot, self_id: service.botId, user_id: inviterId, group_id: card.groupId,
+        group_name: card.groupName, cardSenderId: request.userId,
+        invited_id: service.botId, sub_type: 'invite', flag: matches[0].flag
+      })
+      if (handled && inviterId !== request.userId) {
+        await service.notifyInviter(request, `已找到群 ${card.groupId} 的真实邀请，正在按配置处理`)
+      }
+      return handled
+    }
+    await service.notifyInviter(request, `已收到群 ${card.groupId} 的邀请卡片，但未找到唯一可处理的 QQ 邀请请求。请通过 QQ 重新邀请机器人；普通群分享不能直接审批。`)
     return true
   }
 }
@@ -314,6 +430,19 @@ export class BotInviteConfirmHandler extends plugin {
         }
       }
     }
+    const joined = pendingMatches.find(item => !service.getPendingRequests().some(other =>
+      other.groupId === item.groupId && isPendingDecisionInFlight(other)) &&
+      (service.isBotAlreadyInGroup(item.groupId) || service.getStayReviews().some(review => review.groupId === item.groupId)))
+    if (joined && !await service.canHandleRequest(e, joined)) {
+      await e.reply(service.formatInviteMessage('permissionDenied', joined))
+      return true
+    }
+    if (joined && await beginStayReview(joined.groupId, null, service.bot, { reviewType: 'post_join', userId: joined.userId })) {
+      service.reload()
+      const criteria = requestId ? { requestId } : commandTarget ? { groupId } : { msgId: replyMsgId }
+      pendingMatches = service.findPendingRequests(criteria)
+      stayMatches = service.findStayReviews(criteria)
+    }
     const matches = [...pendingMatches, ...stayMatches]
     const pendingRequest = matches.length === 1 ? matches[0] : null
 
@@ -324,10 +453,24 @@ export class BotInviteConfirmHandler extends plugin {
       }
 
       if (force && groupId && commandTarget) {
+        if (service.getStayReviews().some(item => item.groupId === groupId && item.status === 'leaving')) {
+          await e.reply('该群正在退群，无法保证取消本次退群；请退群后重新邀请')
+          return true
+        }
+        if (service.isBotAlreadyInGroup(groupId)) {
+          if (!service.clearStayCooldown(groupId)) {
+            await e.reply('清除冷却失败，请检查配置文件')
+            return true
+          }
+          cancelJoinCheck(groupId, service.bot)
+          await e.reply(`已强制允许机器人留在群 ${groupId}，并取消尚未完成的人数检查`)
+          return true
+        }
         if (!service.markApprovedGroup(groupId) || !service.clearStayCooldown(groupId)) {
           await e.reply('保存强制放行或清除冷却失败，请检查配置文件')
           return true
         }
+        cancelJoinCheck(groupId, service.bot)
         await e.reply(`已登记群 ${groupId} 的强制放行；下次收到该群邀请时将自动同意，并跳过本次人数退群检查`)
         logger.info(`[自动退群] 主人已登记群 ${groupId} 的强制放行`)
         return true
@@ -346,13 +489,25 @@ export class BotInviteConfirmHandler extends plugin {
       if (pendingRequest.expiresAt) {
         const decision = await decideStayReview(pendingRequest, approve, service.bot)
         await e.reply(decision.message)
-        if (decision.ok) await service.notifyUsers(decision.message, [String(e.user_id || '')])
+        if (decision.ok) {
+          await service.notifyUsers(decision.message, [String(e.user_id || '')])
+          await service.notifyInviter(pendingRequest, decision.message)
+        }
         return true
       }
       if (force) service.clearStayCooldown(pendingRequest.groupId)
       const reason = approve ? '' : service.formatInviteMessage('manualRejectReason', pendingRequest)
-      await service.approvePendingRequest(pendingRequest, approve, reason)
-      service.removePendingRequest(pendingRequest.requestId)
+      if (!service.claimPendingRequest(pendingRequest.requestId)) {
+        await e.reply('该邀请已过期、已处理或正在处理中')
+        return true
+      }
+      try {
+        await service.approvePendingRequest(pendingRequest, approve, reason)
+        if (!service.removePendingRequest(pendingRequest.requestId)) throw new Error('协议端已处理，但保存审核结果失败')
+        cancelJoinCheck(pendingRequest.groupId, service.bot)
+      } finally {
+        service.releasePendingRequest(pendingRequest.requestId)
+      }
     } catch (err) {
       logger.error(`[自动退群] 处理群邀请请求失败: ${err.message}`)
       await e.reply(service.formatInviteMessage('processFailed', pendingRequest, {

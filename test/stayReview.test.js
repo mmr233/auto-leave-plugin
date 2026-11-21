@@ -67,6 +67,29 @@ test('low member join creates persistent review with a count; approval keeps bot
   assert.equal(leaves, 0)
 })
 
+test('member count lookup accepts a numeric cache key for a string group id', async () => {
+  let found = null
+  const numericCacheBot = { gl: new Map([[123456, { member_count: 49 }]]) }
+  const result = await checkAndLeaveGroupWithRetry('123456', numericCacheBot, 0, async (groupId, count) => {
+    found = { groupId, count }
+    return true
+  })
+  assert.equal(result, true)
+  assert.deepEqual(found, { groupId: '123456', count: 49 })
+})
+
+test('a cancelled membership check cannot leave after its delay', async () => {
+  const { executeLeaveGroup } = await import('../model/groupCheck.js')
+  let current = true
+  const before = leaves
+  const task = executeLeaveGroup({
+    groupId: '123456', bot, groupName: '测试群', skipGroupMessage: true, shouldLeave: () => current
+  })
+  current = false
+  assert.equal(await task, false)
+  assert.equal(leaves, before)
+})
+
 test('rejecting an already joined bot leaves the group once', async () => {
   await beginStayReview('123456', 49, bot)
   const review = new InviteManagementService({ bot }).getStayReviews()[0]

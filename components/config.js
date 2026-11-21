@@ -45,7 +45,7 @@ const DEFAULT_INVITE_MANAGEMENT = {
 }
 
 export const DEFAULT_INVITE_MESSAGES = {
-  reviewNotification: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n当前人数：{memberCount}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 t确认加群 或 t拒绝加群\n备用方式：t确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n{precheckNotice}',
+  reviewNotification: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n当前人数：{memberCount}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 t确认加群 或 t拒绝加群\n备用方式：t确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n机器人若已入群，确认表示允许留群，拒绝表示立即退群。\n{precheckNotice}',
   stayReviewNotification: '机器人已进入人数不足的群\n群号：{groupId}\n群名：{groupName}\n当前人数：{memberCount}\n最低要求：{minMemberCount}\n请求ID：{requestId}\n截止时间：{deadline}\n\n引用本消息发送 t确认加群 允许留群，或 t拒绝加群 立即退群\n备用方式：t确认加群 {groupId}',
   postJoinReviewNotification: '机器人已入群，等待留群审核\n群号：{groupId}\n群名：{groupName}\n当前人数：{memberCount}（含本机器人）\n对比人数：{checkedMemberCount}（{countBasis}）\n最低要求：{minMemberCount}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n截止时间：{deadline}\n\n引用本消息发送 t确认加群 允许留群，或 t拒绝加群 立即退群\n备用方式：t确认加群 {groupId}\n到期未确认将自动退群',
   stayApproved: '已批准机器人留群\n群号：{groupId}\n群名：{groupName}',
@@ -55,7 +55,7 @@ export const DEFAULT_INVITE_MESSAGES = {
   inviteSubmitted: '加群邀请已提交审核\n群号：{groupId}\n群名：{groupName}\n有效期：{expireMinutes} 分钟',
   inviteApproved: '加群邀请已通过\n群号：{groupId}\n群名：{groupName}',
   inviteRejected: '加群邀请已拒绝\n群号：{groupId}\n群名：{groupName}',
-  inviteExpired: '群邀请审核已结束\n群号：{groupId}\n群名：{groupName}\n原因：审核有效期内未处理\n机器人未处理本次邀请，如需入群请重新邀请',
+  inviteExpired: '群邀请审核已结束\n群号：{groupId}\n群名：{groupName}\n原因：插件内审核已到期\n如已通过 QQ 或其他方式处理，请以实际群状态为准。',
   resultApproved: '加群请求已同意\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}',
   resultRejected: '加群请求已拒绝\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}',
   autoApproved: '加群邀请已自动同意\n群号：{groupId}\n群名：{groupName}',
@@ -74,6 +74,16 @@ export const DEFAULT_INVITE_MESSAGES = {
 }
 
 const LEGACY_INVITE_MESSAGES = [
+  {
+    path: 'inviteMessages.reviewNotification',
+    legacy: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n当前人数：{memberCount}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 t确认加群 或 t拒绝加群\n备用方式：t确认加群 {groupId}\n有效期：{expireMinutes} 分钟\n{precheckNotice}',
+    next: DEFAULT_INVITE_MESSAGES.reviewNotification
+  },
+  {
+    path: 'inviteMessages.inviteExpired',
+    legacy: '群邀请审核已结束\n群号：{groupId}\n群名：{groupName}\n原因：审核有效期内未处理\n机器人未处理本次邀请，如需入群请重新邀请',
+    next: DEFAULT_INVITE_MESSAGES.inviteExpired
+  },
   {
     path: 'inviteMessages.reviewNotification',
     legacy: '机器人加群邀请\n群号：{groupId}\n群名：{groupName}\n邀请人：{userId}\n邀请人昵称：{nickname}\n请求ID：{requestId}\n\n处理方式：引用本消息发送 #确认加群 或 #拒绝加群\n备用方式：#确认加群 {groupId}\n有效期：{expireMinutes} 分钟',

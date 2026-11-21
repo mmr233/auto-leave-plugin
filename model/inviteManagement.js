@@ -49,6 +49,23 @@ export const PRECHECK_FAILURE_ACTION_LABEL = {
 }
 
 const pendingExpiryTimers = new Map()
+const inviteNoticeInFlight = new Set()
+const pendingDecisions = new Set()
+const reconcilingPendingBots = new Set()
+
+export function setInviteNoticeInFlight(request, active) {
+  const key = pendingExpiryKey(request)
+  if (active) inviteNoticeInFlight.add(key)
+  else inviteNoticeInFlight.delete(key)
+}
+
+export function isInviteNoticeInFlight(request) {
+  return inviteNoticeInFlight.has(pendingExpiryKey(request))
+}
+
+export function isPendingDecisionInFlight(request) {
+  return pendingDecisions.has(pendingExpiryKey(request))
+}
 
 function pendingExpiryKey(request) {
   return `${request.botId}:${request.requestId}`
@@ -78,9 +95,79 @@ export function reconcilePendingInviteRequests() {
   for (const botId of new Set(requests.map(item => item.botId).filter(Boolean))) {
     const root = globalThis.Bot
     const bot = root?.[botId] || root
-    if (String(bot?.uin || bot?.self_id || '') !== botId) continue
-    const service = new InviteManagementService({ bot })
-    service.cleanExpiredPendingRequests()
+    if (String(bot?.uin || bot?.self_id || '') !== botId || reconcilingPendingBots.has(botId)) continue
+    reconcilingPendingBots.add(botId)
+    reconcileBotPendingRequests(new InviteManagementService({ bot }))
+      .catch(err => logger.error(`[自动退群] 恢复群邀请审核失败: ${err.message}`))
+      .finally(() => reconcilingPendingBots.delete(botId))
+  }
+}
+
+async function reconcileBotPendingRequests(service) {
+  const joined = service.getPendingRequests().filter(request =>
+    service.isBotAlreadyInGroup(request.groupId) && !isPendingDecisionInFlight(request))
+  if (joined.length) {
+    const { processGroupJoin } = await import('./index.js')
+    for (const request of joined) {
+      service.reload()
+      if (!service.getPendingRequests().some(item => item.requestId === request.requestId) ||
+        isPendingDecisionInFlight(request)) continue
+      if (request.legacyNoticeState && !service.isApprovedGroup(request.groupId) &&
+        !service.getStayReviews().some(item => item.groupId === request.groupId)) {
+        if (service.removePendingRequest(request.requestId)) {
+          await service.notifyInviter(request, `机器人已在群 ${request.groupId}，历史邀请审核状态无法确认，已结束旧邀请记录。请以实际群状态为准`)
+        }
+        continue
+      }
+      await processGroupJoin({
+        bot: service.bot, self_id: service.botId, user_id: service.botId,
+        group_id: request.groupId, operator_id: request.userId
+      })
+    }
+  }
+
+  const pending = service.cleanExpiredPendingRequests()
+  let systemRequests = null
+  if (pending.length) {
+    try {
+      systemRequests = await getGroupSystemRequests(service.bot)
+    } catch (err) {
+      logger.debug?.(`[自动退群] 同步群邀请处理状态失败: ${err.message}`)
+    }
+  }
+  service.reload()
+  for (const request of service.getPendingRequests()) {
+    if (isPendingDecisionInFlight(request) || isInviteNoticeInFlight(request)) continue
+    const handled = systemRequests?.entries.some(item => {
+      const target = String(item.requester_uin ?? item.requester_id ?? item.target_id ?? '')
+      return String(item.group_id ?? item.groupId ?? '') === request.groupId &&
+        String(item.flag || '') === request.flag && (target ? target === service.botId : systemRequests.invitedOnly) &&
+        (item.checked === true || item.checked === 1)
+    })
+    if (handled && !service.isBotAlreadyInGroup(request.groupId)) {
+      if (service.removePendingRequest(request.requestId)) {
+        await service.notifyInviter(request, `群邀请已由 QQ 或其他方式处理\n群号：${request.groupId}\n群名：${request.groupName}\n请以实际群状态为准`)
+      }
+      continue
+    }
+    if (!request.noticeSent) {
+      recoverPendingNotice(service, request).catch(err => logger.error(`[自动退群] 恢复群邀请通知失败: ${err.message}`))
+    }
+  }
+}
+
+async function recoverPendingNotice(service, request) {
+  setInviteNoticeInFlight(request, true)
+  try {
+    const notified = await service.sendReviewNotifications(request)
+    if (!service.recordReviewNotification(request, notified)) return
+    if (notified.manageGroupIds.length || notified.notifiedUserIds.length || notified.masterNotified) {
+      await service.notifyInviter(request, service.buildInviteeMessage(request, 'inviteSubmitted'))
+    } else {
+      logger.warn(`[自动退群] 群 ${request.groupId} 的邀请审核通知未送达，将重试`)
+    }
+  } finally {
+    setInviteNoticeInFlight(request, false)
   }
 }
 
@@ -228,6 +315,8 @@ function normalizePendingRequests(value) {
       subType: String(item.subType || item.sub_type || 'invite'),
       msgIds: normalizeIdList(item.msgIds ?? item.msgId),
       manageGroupIds: normalizeIdList(item.manageGroupIds ?? item.manageGroupId),
+      noticeSent: typeof item.noticeSent === 'boolean' ? item.noticeSent : true,
+      legacyNoticeState: item.legacyNoticeState === true || typeof item.noticeSent !== 'boolean',
       memberCount: firstMemberCount(item.memberCount, item.member_count),
       precheckStatus: String(item.precheckStatus || '').trim(),
       precheckReason: String(item.precheckReason || '').trim(),
@@ -242,6 +331,7 @@ function normalizeStayReviews(value) {
   if (!Array.isArray(value)) return []
   return value.map(item => ({
     requestId: String(item.requestId || ''),
+    requestIds: Array.isArray(item.requestIds) ? item.requestIds.map(String).filter(Boolean) : [],
     botId: toId(item.botId),
     groupId: toId(item.groupId),
     groupName: String(item.groupName || '未知群名'),
@@ -413,6 +503,24 @@ export async function setGroupAddRequest(botOrEvent, request, approve, reason = 
   throw errors[0] || new Error('当前协议端不支持处理群邀请')
 }
 
+export async function getGroupSystemRequests(bot) {
+  if (typeof bot?.sendApi !== 'function' && typeof bot?.get_group_system_msg !== 'function') return null
+  let timer
+  try {
+    const response = await Promise.race([
+      callBotApi(bot, 'get_group_system_msg', {}),
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), 3000); timer.unref?.() })
+    ])
+    if (!response || !isApiSuccess(response)) return null
+    const data = response.data ?? response.response ?? response
+    if (Array.isArray(data)) return { entries: data, invitedOnly: false }
+    if (Array.isArray(data?.invited_requests)) return { entries: data.invited_requests, invitedOnly: true }
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export class InviteManagementService {
   constructor(e = null) {
     this.e = e
@@ -522,13 +630,14 @@ export class InviteManagementService {
 
   getTemplateVars(request = {}, extra = {}) {
     const memberCount = firstMemberCount(request.memberCount, request.member_count)
+    const expiresAt = Number(request.expiresAt) || (request.requestTime ? Number(request.requestTime) + this.expireMs : 0)
     return {
       groupId: request.groupId || request.group_id || '',
       groupName: request.groupName || request.group_name || '未知群名',
       userId: request.userId || request.user_id || '',
       nickname: request.nickname || '未知用户',
       requestId: request.requestId || '',
-      expireMinutes: this.config.requestExpireMinutes,
+      expireMinutes: expiresAt ? Math.max(1, Math.ceil((expiresAt - Date.now()) / 60000)) : this.config.requestExpireMinutes,
       deadline: request.expiresAt
         ? new Date(request.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
         : '',
@@ -631,7 +740,7 @@ export class InviteManagementService {
   }
 
   async getGroupInfo(groupId, event = null) {
-    const cardEvent = event ? { self_id: event.self_id || this.botId, user_id: event.user_id } : null
+    const cardEvent = event ? { self_id: event.self_id || this.botId, user_id: event.cardSenderId || event.user_id } : null
     let groupName = event?.group_name || event?.groupName || findInviteCard(cardEvent, groupId)?.groupName || '未知群名'
     const eventMemberCount = firstMemberCount(event?.member_count, event?.memberCount)
     const result = async memberCount => {
@@ -774,7 +883,7 @@ export class InviteManagementService {
         if (messageId) {
           msgIds.push(String(messageId))
         }
-      if (isApiSuccess(res)) {
+        if (isApiSuccess(res)) {
           manageGroupIds.push(String(groupId))
         }
       } catch (err) {
@@ -819,6 +928,24 @@ export class InviteManagementService {
     return sendPrivateMessage(this.bot, Number(request.userId) || request.userId, message)
   }
 
+  async notifyExpiredInvite(request) {
+    let message = this.formatInviteMessage('inviteExpired', request)
+    if (this.isBotAlreadyInGroup(request.groupId)) {
+      message = `群邀请审核已结束\n群号：${request.groupId}\n群名：${request.groupName}\n机器人已入群，原邀请不再等待处理`
+    } else {
+      try {
+        const result = await getGroupSystemRequests(this.bot)
+        if (result?.entries.some(item => String(item.flag || '') === request.flag &&
+          String(item.group_id ?? item.groupId ?? '') === request.groupId && (item.checked === true || item.checked === 1))) {
+          message = `群邀请审核已结束\n群号：${request.groupId}\n群名：${request.groupName}\nQQ 已处理此邀请，请以实际群状态为准`
+        }
+      } catch (err) {
+        logger.debug?.(`[自动退群] 检查邀请处理状态失败: ${err.message}`)
+      }
+    }
+    return this.notifyInviter(request, message)
+  }
+
   async notifyMaster(message) {
     const botId = this.bot?.uin || this.bot?.self_id
     const masterQQ = getMasterQQ(botId)
@@ -830,7 +957,8 @@ export class InviteManagementService {
 
   filterPending(pending) {
     const now = Date.now()
-    return pending.filter(item => now - Number(item.requestTime || 0) <= this.expireMs)
+    return pending.filter(item => pendingDecisions.has(pendingExpiryKey({ ...item, botId: item.botId || this.botId })) ||
+      now - Number(item.requestTime || 0) <= this.expireMs)
   }
 
   belongsToCurrentBot(item) {
@@ -851,16 +979,18 @@ export class InviteManagementService {
       botId: item.botId || this.botId
     }))
     rootConfig.inviteManagement.pendingRequests = [...otherBotPending, ...currentPending]
-    Config.saveConfig(rootConfig)
+    const saved = Config.saveConfig(rootConfig)
     this.reload()
+    return saved
   }
 
   cleanExpiredPendingRequests() {
+    this.reload()
     const currentPending = this.getPendingRequests()
     const pending = this.filterPending(currentPending)
     const needsBotMigration = currentPending.some(item => !item.botId && this.botId)
     if (pending.length !== currentPending.length || needsBotMigration) {
-      this.savePendingRequests(pending)
+      if (!this.savePendingRequests(pending)) return currentPending
     }
     const remaining = new Set(pending.map(item => item.requestId))
     for (const request of currentPending) {
@@ -868,12 +998,13 @@ export class InviteManagementService {
       cancelPendingExpiry({ ...request, botId: request.botId || this.botId })
     }
     for (const request of pending) {
-      schedulePendingExpiry(this, request.botId ? request : { ...request, botId: this.botId })
+      const current = request.botId ? request : { ...request, botId: this.botId }
+      if (!pendingDecisions.has(pendingExpiryKey(current))) schedulePendingExpiry(this, current)
     }
     if (this.config.notifyInviterOnExpiry) {
       for (const request of currentPending) {
         if (remaining.has(request.requestId)) continue
-        this.notifyInviter(request, this.formatInviteMessage('inviteExpired', request))
+        this.notifyExpiredInvite(request)
           .then(sent => {
             if (!sent) logger.warn(`[自动退群] 无法向邀请者发送群 ${request.groupId} 的审核到期通知`)
           })
@@ -884,12 +1015,8 @@ export class InviteManagementService {
   }
 
   addPendingRequest(request) {
-    let pending = this.cleanExpiredPendingRequests()
-      .filter(item => {
-        if (item.flag !== request.flag) return true
-        cancelPendingExpiry({ ...item, botId: item.botId || this.botId })
-        return false
-      })
+    const pending = this.cleanExpiredPendingRequests()
+    if (pending.some(item => item.flag === request.flag)) return false
 
     while (pending.length >= this.config.maxPendingRequests) {
       const removed = pending.shift()
@@ -899,10 +1026,31 @@ export class InviteManagementService {
     pending.push({
       ...request,
       botId: request.botId || this.botId,
+      noticeSent: request.noticeSent ?? (normalizeIdList(request.manageGroupIds ?? request.manageGroupId).length > 0 ||
+        normalizeIdList(request.notifiedUserIds).length > 0 || request.masterNotified === true),
       status: request.status || (request.precheckStatus === 'failed' ? 'precheck_failed' : 'pending')
     })
-    this.savePendingRequests(pending)
+    if (!this.savePendingRequests(pending)) return false
     schedulePendingExpiry(this, pending.at(-1))
+    return true
+  }
+
+  recordReviewNotification(request, notified) {
+    const root = Config.loadConfig()
+    const pending = normalizePendingRequests(root.inviteManagement.pendingRequests)
+    const reviews = normalizeStayReviews(root.inviteManagement.stayReviews)
+    const current = pending.find(item => this.belongsToCurrentBot(item) && item.requestId === request.requestId) ||
+      reviews.find(item => item.botId === this.botId &&
+        (item.requestId === request.requestId || item.requestIds.includes(request.requestId)))
+    if (!current) return false
+    current.msgIds = [...new Set([...current.msgIds, ...notified.msgIds])]
+    current.manageGroupIds = [...new Set([...current.manageGroupIds, ...notified.manageGroupIds])]
+    current.noticeSent = current.noticeSent || notified.manageGroupIds.length > 0 || notified.notifiedUserIds.length > 0 || notified.masterNotified
+    root.inviteManagement.pendingRequests = pending
+    root.inviteManagement.stayReviews = reviews
+    const saved = Config.saveConfig(root)
+    this.reload()
+    return saved
   }
 
   findPendingRequests({ msgId = '', groupId = '', requestId = '' } = {}) {
@@ -925,10 +1073,39 @@ export class InviteManagementService {
   }
 
   removePendingRequest(requestId) {
-    const pending = this.cleanExpiredPendingRequests()
-      .filter(item => item.requestId !== requestId)
-    this.savePendingRequests(pending)
+    this.reload()
+    const pending = this.getPendingRequests().filter(item => item.requestId !== requestId)
+    if (!this.savePendingRequests(pending)) return false
     cancelPendingExpiry({ botId: this.botId, requestId })
+    return true
+  }
+
+  resolvePendingGroup(groupId) {
+    this.reload()
+    const pending = this.getPendingRequests()
+    const resolved = pending.filter(item => item.groupId === String(groupId))
+    if (!resolved.length) return []
+    if (!this.savePendingRequests(pending.filter(item => item.groupId !== String(groupId)))) return null
+    for (const item of resolved) cancelPendingExpiry({ ...item, botId: item.botId || this.botId })
+    return resolved
+  }
+
+  claimPendingRequest(requestId) {
+    const pending = this.cleanExpiredPendingRequests()
+    const request = pending.find(item => item.requestId === requestId)
+    if (!request) return false
+    const current = { ...request, botId: request.botId || this.botId }
+    const key = pendingExpiryKey(current)
+    if (pending.some(item => item.groupId === current.groupId &&
+      pendingDecisions.has(pendingExpiryKey({ ...item, botId: item.botId || this.botId })))) return false
+    pendingDecisions.add(key)
+    cancelPendingExpiry(current)
+    return true
+  }
+
+  releasePendingRequest(requestId) {
+    pendingDecisions.delete(pendingExpiryKey({ botId: this.botId, requestId }))
+    this.cleanExpiredPendingRequests()
   }
 
   getStayReviews() {
@@ -937,18 +1114,24 @@ export class InviteManagementService {
 
   findStayReviews({ msgId = '', groupId = '', requestId = '' } = {}) {
     const reviews = this.getStayReviews().filter(item => item.status === 'pending')
-    if (requestId) return reviews.filter(item => item.requestId === String(requestId))
+    if (requestId) return reviews.filter(item => item.requestId === String(requestId) || item.requestIds.includes(String(requestId)))
     if (msgId) return reviews.filter(item => item.msgIds.includes(String(msgId)))
     return groupId ? reviews.filter(item => item.groupId === String(groupId)) : []
   }
 
-  saveStayReview(review) {
+  saveStayReview(review, { promotePending = false } = {}) {
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
     const reviews = normalizeStayReviews(rootConfig.inviteManagement.stayReviews)
       .filter(item => !(item.botId === review.botId && item.groupId === review.groupId))
     rootConfig.inviteManagement.stayReviews = [...reviews, review]
+    const pending = normalizePendingRequests(rootConfig.inviteManagement.pendingRequests)
+    const promoted = promotePending
+      ? pending.filter(item => this.belongsToCurrentBot(item) && item.groupId === String(review.groupId))
+      : []
+    if (promotePending) rootConfig.inviteManagement.pendingRequests = pending.filter(item => !promoted.includes(item))
     const saved = Config.saveConfig(rootConfig)
+    if (saved) for (const item of promoted) cancelPendingExpiry({ ...item, botId: item.botId || this.botId })
     this.reload()
     return saved
   }
@@ -957,8 +1140,12 @@ export class InviteManagementService {
     const rootConfig = Config.loadConfig()
     rootConfig.inviteManagement = rootConfig.inviteManagement || {}
     const reviews = normalizeStayReviews(rootConfig.inviteManagement.stayReviews)
-    rootConfig.inviteManagement.stayReviews = reviews.filter(item => item.requestId !== review.requestId)
+    rootConfig.inviteManagement.stayReviews = reviews.filter(item => !(item.botId === review.botId && item.requestId === review.requestId))
+    const pending = normalizePendingRequests(rootConfig.inviteManagement.pendingRequests)
+    const obsolete = pending.filter(item => this.belongsToCurrentBot(item) && item.groupId === String(review.groupId))
+    rootConfig.inviteManagement.pendingRequests = pending.filter(item => !obsolete.includes(item))
     const saved = Config.saveConfig(rootConfig)
+    if (saved) for (const item of obsolete) cancelPendingExpiry({ ...item, botId: item.botId || this.botId })
     this.reload()
     return saved
   }
@@ -1142,7 +1329,7 @@ export class InviteManagementService {
   async approvePendingRequest(request, approve, reason = '', { rememberApproval = true } = {}) {
     const hadApproval = this.isApprovedGroup(request.groupId)
     if (approve && rememberApproval && !hadApproval) {
-      this.markApprovedGroup(request.groupId)
+      if (!this.markApprovedGroup(request.groupId)) throw new Error('无法保存本次批准状态，未向协议端提交同意')
     }
 
     try {
